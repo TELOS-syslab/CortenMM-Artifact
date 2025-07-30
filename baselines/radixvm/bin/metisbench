@@ -1,0 +1,21 @@
+#!/sh
+
+./metis_wrmem -s 200 -p 1;sleep 5
+./metis_wrmem -s 200 -p 2;sleep 5
+./metis_wrmem -s 200 -p 4;sleep 5
+./metis_wrmem -s 200 -p 8;sleep 5
+./metis_wrmem -s 200 -p 16;sleep 5
+./metis_wrmem -s 200 -p 24;sleep 5
+./metis_wrmem -s 200 -p 32;sleep 5
+./metis_wrmem -s 200 -p 40;sleep 5
+./metis_wrmem -s 200 -p 48;sleep 5
+./metis_wrmem -s 200 -p 56;sleep 5
+./metis_wrmem -s 200 -p 64;sleep 5
+./metis_wrmem -s 200 -p 72;sleep 5
+./metis_wrmem -s 200 -p 80;sleep 5
+./metis_wrmem -s 200 -p 88;sleep 5
+./metis_wrmem -s 200 -p 96;sleep 5
+./metis_wrmem -s 200 -p 104;sleep 5
+./metis_wrmem -s 200 -p 112;sleep 5
+./metis_wrmem -s 200 -p 120;sleep 5
+./metis_wrmem -s 200 -p 128;sleep 5

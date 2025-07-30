@@ -1,0 +1,1 @@
+python3 run.py --cmd "log=info initargs=32" --nic e1000 --mods init --ufeatures rumprt test-my --qemu-cores 32 --qemu-memory 49152 --qemu-affinity [] --qemu-settings="-m 10G" --release

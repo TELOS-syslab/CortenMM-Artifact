@@ -1,0 +1,27 @@
+$(O)/lib/%.o: CFLAGS:=$(CFLAGS) -DXV6_USER
+$(O)/lib/%.o: CXXFLAGS:=$(CXXFLAGS) -DXV6_USER -fno-exceptions -fno-rtti
+
+ULIB = ulib.o printf.o umalloc.o uthread.o fmt.o stdio.o \
+       string.o threads.o crt.o sysstubs.o perf.o \
+       getopt.o rand.o msort.o qsort.o ctype.o \
+       time.o timemath.o
+ULIB := $(addprefix $(O)/lib/, $(ULIB))
+ULIBA = $(O)/lib/libu.a
+
+$(O)/lib/sysstubs.S: tools/syscalls.py kernel/*.cc
+	$(call SYSCALLGEN,--ustubs)
+
+$(O)/include/sysstubs.h: tools/syscalls.py kernel/*.cc
+	$(call SYSCALLGEN,--udecls)
+
+# Assume all of the library sources include sysstubs.h
+$(ULIB): $(O)/include/sysstubs.h
+
+$(ULIBA): $(ULIB)
+	@echo "  AR     $@"
+	$(Q)mkdir -p $(@D)
+	$(Q)$(AR) rc $@ $^
+
+.PRECIOUS: $(O)/lib/%.o
+.PRECIOUS: $(ULIBA)
+-include $(O)/lib/*.d

@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "*", features = ["derive"] }
+cargo_metadata = "*"
+memoize = "*"
+git2 = { version = "*" }
+cargo_toml = { version = "*" }
+lazy_static = { version = "*" }
+walkdir = "2"
+owo-colors = { version = "*", features = ["supports-colors"] }

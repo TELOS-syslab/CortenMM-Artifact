@@ -1,0 +1,89 @@
+[package]
+name = "init"
+version = "0.1.0"
+authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
+edition = "2021"
+build = "build.rs"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "init"
+path = "src/init.rs"
+
+[dependencies]
+lineup = { path = "../../lib/lineup" }
+vibrio = { path = "../../lib/vibrio" }
+kpi = { path = "../../lib/kpi" }
+arrayvec = { version = "0.7.0", default-features = false }
+proptest = { git = "https://github.com/gz/proptest.git", branch = "x86-asm", default-features = false, features = ['alloc', 'hardware-rng'] }
+rawtime = "0.0.10"
+x86 = { version = "0.52", features = ["unstable"] }
+log = "0.4"
+#libm = "0.2.2"
+num-traits = { version = "0.2", default-features = false, features = ["libm"] }
+lazy_static =  { version = "1.4", default_features = false }
+cstr_core = { version = "0.2.3", default-features = false }
+spin = { version = "0.5.2", default_features = false }
+hashbrown = { version = "0.11", features = [ "nightly" ] }
+md-5 = { version = "0.10.6", default-features = false }
+base64ct = "1.6.0"
+
+[features]
+default = []
+rumprt = ["vibrio/rumprt"]
+# Use virtio instead of e1000
+virtio = []
+
+# Tests we run with CI make sure that the base features of
+# the kernel are working:
+test-print = []
+test-map = []
+test-alloc = []
+test-upcall = []
+test-scheduler = []
+test-scheduler-smp = []
+test-syscalls = []
+test-rump-tmpfs = ["rumprt"]
+test-rump-net = ["rumprt"]
+test-fs = []
+test-fs-prop = []
+test-pmem-alloc = []
+test-phys-alloc = []
+test-core-alloc = []
+test-rackscale-shootdown = []
+test-concurrent-shootdown = []
+test-my = []
+
+# Simple micro-benchmarks
+bench-vmops = []
+bench-vmops-unmaplat = []
+fxmark = []
+memhash = []
+
+# smoke: A way to tell the micro-benchmarks
+# to only run for a short period, don't consume many
+# resources, just enough to make sure they work
+# but won't produce valid results
+smoke = []
+
+# Do latency measurements in benchmarks
+latency = []
+
+all-tests = [
+    "test-print",
+    "test-map",
+    "test-alloc",
+    "test-upcall",
+    "test-scheduler",
+    #"test-scheduler-smp",  # Doesn't return
+    "test-syscalls",
+    "test-rump-tmpfs",
+    "test-rump-net",
+    "test-fs",
+    "test-my",
+    "test-phys-alloc",
+    "test-core-alloc",
+    # "test-request-core-remote", TODO: used only for rackscale tests right now
+    #"test-fs-prop", # needs userspace
+    #"test-pmem-alloc", # needs SMP
+]

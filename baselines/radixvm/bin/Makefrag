@@ -1,0 +1,129 @@
+# -*- makefile-gmake -*-
+$(O)/bin/%.o: CFLAGS:=$(CFLAGS)
+$(O)/bin/%.o: CXXFLAGS:=$(CXXFLAGS) -fno-exceptions -fno-rtti
+
+ifeq ($(PLATFORM),xv6)
+$(O)/bin/%.o: CFLAGS:=$(CFLAGS) -DXV6_USER
+$(O)/bin/%.o: CXXFLAGS:=$(CXXFLAGS) -DXV6_USER
+endif
+
+UPROGS_BIN= \
+        bench \
+	cat \
+        du \
+	echo \
+        exechack \
+	init \
+	forkexectree \
+	forkexecbench \
+	forktree \
+	login \
+	ls \
+	mapbench \
+	allocbench \
+	maptest \
+	mkdir \
+	sh \
+	nsh \
+	halt \
+	time \
+	sleep \
+	dirbench \
+	usertests \
+	lockstat \
+	cp \
+	perf \
+        xtime \
+	asharing \
+	rm \
+	avar \
+	schedbench \
+	filebench \
+	gcbench \
+	vmimbalbench \
+	appendtest \
+	linkbench \
+        tlstest \
+	crwpbench \
+	benchhdr \
+	monkstats \
+	countbench \
+        mv \
+	local_server \
+	local_client \
+	lsocketbench \
+        fstest \
+	base64 \
+	tee \
+        ln \
+	s_mem_use \
+	s_mmap \
+	s_mmap_pf \
+	s_munmap \
+	s_munmap_v \
+	s_pf \
+	#	\
+	old_s_mmap \
+	old_s_mmap_pf \
+	old_s_pf_d \
+	old_s_pf_r \
+	old_s_munmap_d \
+	old_s_munmap_r \
+	old_s_munmap_v \
+	old_s_mem \
+
+ifeq ($(HAVE_LWIP),y)
+UPROGS_BIN += \
+       telnetd \
+       httpd
+endif
+
+UPROGS := $(UPROGS_BIN) \
+          metis_string_match \
+          metis_matrix_mult \
+	  metis_wrmem
+
+UPROGS := $(addprefix $(O)/bin/, $(UPROGS))
+
+# Binaries that are known to build on PLATFORM=native
+UPROGS_NATIVE := \
+	benchhdr \
+	mapbench \
+	tee \
+        fstest \
+	lsocketbench \
+
+FSEXTRA += \
+	bin/linkbench-tom \
+	bin/mapbench-ben \
+	bin/metis_wrmem-josmp \
+	bin/metis_wrmem-ben \
+	bin/lsocket \
+	bin/countbench-ben \
+	bin/microbench \
+	bin/metisbench \
+
+ifeq ($(PLATFORM),native)
+ALL += $(addprefix $(O)/bin/, $(UPROGS_NATIVE))
+endif
+
+ifneq ($(PLATFORM),native)
+UPROGS_LIBS += $(ULIBA)
+endif
+UPROGS_LIBS += $(LIBUTIL_A)
+
+$(O)/bin/%.unstripped: $(O)/bin/%.o $(UPROGS_LIBS)
+	@echo "  LD     $@"
+	$(Q)mkdir -p $(@D)
+	$(Q)$(LD) $(LDFLAGS) -o $@ $^
+
+$(O)/bin/%: $(O)/bin/%.unstripped
+	@echo "  STRIP  $@"
+	$(Q)mkdir -p $(@D)
+	$(Q)$(STRIP) -o $@ $<
+
+# Assume everything inclues user.h, which includes sysstubs.h
+$(patsubst %,$(O)/bin/%.o,$(UPROGS_BIN)): $(O)/include/sysstubs.h
+
+.PRECIOUS: $(O)/bin/%.o $(O)/bin/%.unstripped
+-include $(O)/bin/*.d

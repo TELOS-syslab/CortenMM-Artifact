@@ -1,0 +1,11 @@
+[package]
+name = "bootloader_shared"
+version = "0.0.1"
+authors = ["Gerd Zellweger <mail@gerdzellweger.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+x86 = { version = "0.52", features = ["unstable"] }
+arrayvec = { version = "0.7.0", default-features = false }
+uefi = "0.15"

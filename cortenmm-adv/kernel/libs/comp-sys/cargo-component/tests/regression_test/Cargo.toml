@@ -1,0 +1,2 @@
+[workspace]
+members = ["foo1", "bar1"]

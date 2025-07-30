@@ -1,0 +1,25 @@
+diff --git a/source/rust_verify/src/attributes.rs b/source/rust_verify/src/attributes.rs
+index 39b488cb..a0fadb3b 100644
+--- a/source/rust_verify/src/attributes.rs
++++ b/source/rust_verify/src/attributes.rs
+@@ -1184,4 +1184,7 @@ pub const RUSTC_ATTRS_OK_TO_IGNORE: &[&str] = &[
+     "rustc_insignificant_dtor",
+     // Boxes
+     "rustc_box",
++    // Support for separate definition of struct type and member methods
++    "rustc_has_incoherent_inherent_impls",
++    "rustc_allow_incoherent_impl",
+ ];
+diff --git a/tools/vargo/src/main.rs b/tools/vargo/src/main.rs
+index 05ef0d3c..5f070bc2 100644
+--- a/tools/vargo/src/main.rs
++++ b/tools/vargo/src/main.rs
+@@ -496,7 +496,7 @@ fn run() -> Result<(), String> {
+             return Err(format!("rustup failed"));
+         }
+         let active_toolchain_re =
+-            Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+)")
++            Regex::new(r"^(([A-Za-z0-9.-]+)-(?:aarch64|x86_64)-[A-Za-z0-9]+-[A-Za-z0-9-]+) \((?:overridden|environment override) by '?(.*)'?\)")
+                 .unwrap();
+         let stdout = std::str::from_utf8(&output.stdout)
+             .map_err(|_| format!("rustup output is invalid utf8"))?;

@@ -1,0 +1,4 @@
+[toolchain]
+channel = "nightly-2022-11-21"
+components = [ "rustfmt", "rustc-dev", "rust-src", "cargo", "clippy" ]
+profile = "default"

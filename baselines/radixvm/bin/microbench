@@ -1,0 +1,25 @@
+#!/sh
+
+echo "scale_mmap"
+./s_mmap
+sleep 5
+
+echo "scale_munmap_dist"
+./s_munmap_d
+sleep 5
+
+echo "scale_munmap_rand"
+./s_munmap_r
+sleep 5
+
+echo "scale_munmap_virt"
+./s_munmap_v
+sleep 5
+
+echo "scale_pf_dist"
+./s_pf_d
+sleep 5
+
+echo "scale_pf_rand"
+./s_pf_r
+sleep 5

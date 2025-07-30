@@ -1,0 +1,143 @@
+[package]
+name = "nrk"
+version = "0.0.4"
+authors = [
+  "Gerd Zellweger <mail@gerdzellweger.com>",
+]
+description = "Experimental OS kernel"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+build = "build.rs"
+edition = "2021"
+resolver = "2"
+
+
+[dependencies]
+# Our own dependencies:
+apic = { path = "../lib/apic/" }
+node-replication = { path = "../lib/node-replication/nr" } #"0.1.1"
+cnr = { path = "../lib/node-replication/cnr" }
+kpi = { path = "../lib/kpi" }
+rpc = { path = "../lib/rpc", optional = true }
+vmxnet3 = { path = "../lib/vmxnet3" }
+bootloader_shared = { path = "../lib/bootloader_shared" }
+x86 = { version = "0.52", features = ["unstable"] }
+klogger = "0.0.16"
+driverkit = "0.24"
+spin = "0.9.1"
+elfloader = "0.14"
+slabmalloc = "0.10"
+backtracer_core = "0.0.7"
+rawtime = "0.0.10"
+libacpica = "0.0.8"
+atopology = "0.0.33"
+# External libraries we use:
+log = "0.4"
+displaydoc = { version = "0.2", default-features = false }
+lazy_static = { version = "1.4", features = ["spin_no_std"] }
+once_cell = { version = "1.12.0", features = [ "alloc" ], default-features = false }
+logos = { version = "0.12", default-features = false, features = ["export_derive"] }
+hashbrown = { version = "0.11", features = [ "nightly" ] }
+cstr_core = { version = "0.2.3", default-features = false }
+uefi = "0.15"
+crossbeam-utils = { version = "0.8.0", default-features = false }
+static_assertions = "1.1.0"
+bit_field = "0.10"
+crossbeam-queue = { version = "0.3", default-features = false, features = ["alloc"] }
+arrayvec = { version = "0.7.0", default-features = false }
+memoffset = { version = "0.6.5", features = ["unstable_const"] }
+fallible_collections = { git = "https://github.com/gz/fallible_collections.git", branch = "allocator_api3", features = ["unstable", "rust_1_57"] }
+# Should be optional (but currently aren't, TODO)
+gimli = { version = "0.26", default-features = false, features = ["read", "endian-reader"] }
+gdbstub = { git = "https://github.com/daniel5151/gdbstub.git", branch = "dev/0.6", default-features = false, features = ["alloc"] }
+gdbstub_arch = { git = "https://github.com/daniel5151/gdbstub.git", branch = "dev/0.6" }
+# Optional external libraries:
+addr2line = { version = "0.16", default-features = false, features = ["rustc-demangle"], optional = true }
+smoltcp = { version = "0.8.0", default-features = false, features = [ "alloc", "log", "proto-ipv4", "proto-igmp", "proto-dhcpv4", "socket-raw", "socket-icmp", "socket-udp", "socket-tcp" ], optional = true }
+
+[[bin]]
+name = "nrk"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "none")'.dependencies]
+abomonation = { git="https://github.com/hunhoffe/abomonation.git", branch="no-std", default-features = false, optional = true }
+core2 = { version = "0.3", default-features = false, features = [ "alloc" ], optional = true }
+serde = { version = "1", default-features = false, features = ["alloc", "derive"], optional = true }
+serde_cbor = { version = "0.11", default-features = false, optional = true }
+
+[target.'cfg(not(target_os = "none"))'.dependencies]
+libc = { version = "0.2.53", default-features = false }
+csv = "1.1"
+abomonation = { git="https://github.com/hunhoffe/abomonation.git", branch="no-std", default-features = false, optional = true }
+core2 = { version = "0.3", default-features = false, features = [ "alloc" ], optional = true }
+serde = { version = "1" }
+serde_cbor = { version = "0.11" }
+rand = { version = "0.8", features = ["small_rng"] }
+ctor = "0.1.20"
+memfile = "0.2.1"
+
+[target.'cfg(not(target_os = "none"))'.dev-dependencies]
+rexpect = { git = "https://github.com/gz/rexpect.git", branch = "eof-nix" }
+proptest = "1.0.0"
+hwloc2 = "2.2"
+env_logger = "0.9"
+which = "4"
+testutils = { path = "testutils" }
+
+[build-dependencies]
+cc = "1.0"
+
+[features]
+default = ["addr2line", "serde", "serde_cbor", "core2", "abomonation"]
+# Enable Ethernet based networking.
+ethernet = ["smoltcp"]
+# Enable shared memory based communication.
+shmem = []
+# Enables distributed operation by running a control-plane and light-weight
+# kernels that communicate with the control-plane for coarse-grained policy
+# decisions. Use in combination with `shmem` or `ethernet` feature to control
+# transport.
+rackscale = ["rpc"]
+# server code (supply --kgdb to run.py).
+gdb = []
+# Use to enable 4kiB only in kernel - useful for memcached, similar benchmarks
+pages-4k = []
+
+#
+# The following features are used for testing *only* and should not be enabled
+# otherwise:
+#
+
+# Runs an integration test (supplied as commandline `test=` argument) instead of
+# standard kernel main function.
+integration-test = ["shmem", "ethernet"]
+# smoke: Shortens long running benchmarks to test just functionality.
+smoke = []
+# For rackscale tests, runs baseline NrOS. This causes the tests to take longer.
+baseline = []
+# For rackscale tests, use shmem allocated with numa affinity. This requires pre-configuring the host.
+affinity-shmem = []
+# baremetal: Compile benchmarks for running on bare-metal.
+baremetal = []
+# pre-alloc guest memory: For benchmark sensitive to VM exits.
+prealloc = []
+# pfault-early: cause a page-fault early during init.
+cause-pfault-early = []
+# gpfault-early: cause a gp-fault early during init.
+cause-gpfault-early = []
+# double-fault: cause a double-fault early during init.
+cause-double-fault = []
+# test-timer: print something on a timer interrupt.
+test-timer = []
+# test-shmem: print something on a shmem interrupt.
+test-shmem = []
+# test-shmem: print something after testing if controller can allocate from all clients
+test-controller-shmem-alloc = []
+
+[profile.dev]
+debug = true
+opt-level = 0  
+
+[profile.test]
+debug = true
+opt-level = 0 

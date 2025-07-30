@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "bootloader",
+    "kernel",
+    "lib/apic",
+    "lib/bootloader_shared",
+    "lib/kpi",
+    "lib/lineup",
+    "lib/node-replication/cnr",
+    "lib/node-replication/nr",
+    "lib/rpc",
+    "lib/vibrio",
+    "lib/vmxnet3",
+    "lib/rpc",
+    "usr/init",
+    "usr/rkapps",
+    #"lib/fallible_collections",
+    #"lib/libfringe",
+    #"lib/acpica-sys"
+    #"lib/rust-topology",
+    #"lib/rust-driverkit",
+    #"lib/rust-armv8",
+    #"lib/rust-x86",
+    #"lib/rawtime",
+    #"lib/backtracer",
+    #"lib/rust-klogger",
+    #"lib/rexpect",
+    #"lib/pl011_qemu",
+]
+
+# disable stack unwinding on panic for now
+[profile.dev]
+panic = "abort"
+debug = true
+
+[profile.release]
+panic = "abort"
+debug = true
+
+[patch.crates-io]
+#x86 = { path = "lib/rust-x86" }
+#driverkit = { path = "lib/rust-driverkit" }
+#rawtime = { path = "lib/rawtime" }
+#atopology = { path = "lib/rust-topology" }
+#klogger = { path = "lib/rust-klogger" }
+#libacpica = { path = "lib/acpica-sys" }
+#rexpect = { path = "lib/rexpect" }
+#backtracer_core = { path = "lib/backtracer" }

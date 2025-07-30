@@ -1,0 +1,7 @@
+[unstable]
+unstable-options = true
+
+[env]
+
+[alias]
+xtask = "run --manifest-path xtask/Cargo.toml --"

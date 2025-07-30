@@ -1,0 +1,43 @@
+# Binaries
+kernel.bin*
+*.o
+*.rlib
+kernel/nrk
+kernel/kernel
+kernel/uefi.img
+ivshmem-file
+
+# rump
+rump/binutils-2.30.90
+rump/gcc-8.2.0
+gcc-8.2.0.tar.gz
+
+# Builds
+target/
+
+# Editor configs
+.vscode
+.tmuxinator.yml
+
+binutils-*
+public
+.gdb_history
+.DS_Store
+
+# Build/test artefacts
+proptest-regressions
+**/*.csv
+vspace.dot
+vspace.dot.svg
+out.log
+*.pdf
+*.png
+*.img
+*.iso
+dcm.log
+
+# RLS logs
+rls*.log
+
+# Random notes
+*NOTES*

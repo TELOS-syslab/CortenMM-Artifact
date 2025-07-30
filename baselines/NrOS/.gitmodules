@@ -1,0 +1,4 @@
+[submodule "lib/node-replication"]
+	path = lib/node-replication
+	branch = mut_scan_vec
+	url = https://github.com/gz/node-replication.git

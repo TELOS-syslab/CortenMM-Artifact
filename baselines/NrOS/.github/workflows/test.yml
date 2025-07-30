@@ -1,0 +1,59 @@
+# If you modify this file, also ensure that the change/addition is reflected in `commitable.sh`.
+on:
+  push:
+    paths-ignore:
+      - 'doc/**'
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - 'doc/**'
+      - '**.md'
+    types: [opened, review_requested, reopened]
+
+name: Compile and run unit tests
+jobs:
+  compile_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3.0.2
+      - run: |
+          sed -i'' -e 's/git@github.com:/https:\/\/github.com\//' .gitmodules
+          git submodule update --init
+          rustup show
+      #- uses: Swatinem/rust-cache@v1
+      - run: |
+          bash setup.sh
+      - name: Compile check (x86_64-nrk)
+        run: python3 run.py --norun
+        working-directory: ./kernel
+      - name: Compile check (unix)
+        run: cargo run
+        working-directory: ./kernel
+      - name: Kernel unit tests
+        run: RUST_TEST_THREADS=1 cargo test --features smoke --bin nrk
+        working-directory: ./kernel
+      - name: apic tests
+        run: cargo test --all-features
+        working-directory: ./lib/apic
+      - name: bootloader_shared tests
+        run: cargo test --all-features
+        working-directory: ./lib/bootloader_shared
+      - name: kpi tests
+        run: cargo test --all-features
+        working-directory: ./lib/kpi
+      # Disabled at the moment, need to fix the flaky tests:
+      #- name: lineup tests
+      #  run: RUST_TEST_THREADS=1 cargo test
+      #  working-directory: ./lib/lineup
+      - name: vibrio tests
+        run: cargo test --all-features
+        working-directory: ./lib/vibrio
+      - name: vmxnet3 tests
+        run: cargo test --all-features
+        working-directory: ./lib/vmxnet3
+      - name: RPC tests
+        run: cargo test --all-features
+        working-directory: ./lib/rpc
+      - name: Build the documentation
+        run: mdbook build
+        working-directory: ./doc/

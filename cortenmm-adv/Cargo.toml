@@ -1,0 +1,78 @@
+[workspace]
+resolver = "2"
+members = [
+    "osdk/deps/frame-allocator",
+    "osdk/deps/heap-allocator",
+    "osdk/deps/test-kernel",
+    "ostd",
+    "ostd/libs/align_ext",
+    "ostd/libs/ostd-macros",
+    "ostd/libs/id-alloc",
+    "ostd/libs/linux-bzimage/builder",
+    "ostd/libs/linux-bzimage/boot-params",
+    "ostd/libs/linux-bzimage/setup",
+    "ostd/libs/ostd-test",
+    "kernel",
+    "kernel/comps/block",
+    "kernel/comps/console",
+    "kernel/comps/framebuffer",
+    "kernel/comps/input",
+    "kernel/comps/keyboard",
+    "kernel/comps/network",
+    "kernel/comps/softirq",
+    "kernel/comps/systree",
+    "kernel/comps/logger",
+    "kernel/comps/mlsdisk",
+    "kernel/comps/time",
+    "kernel/comps/virtio",
+    "kernel/libs/cpio-decoder",
+    "kernel/libs/int-to-c-enum",
+    "kernel/libs/int-to-c-enum/derive",
+    "kernel/libs/aster-rights",
+    "kernel/libs/aster-rights-proc",
+    "kernel/libs/aster-util",
+    "kernel/libs/aster-bigtcp",
+    "kernel/libs/jhash",
+    "kernel/libs/keyable-arc",
+    "kernel/libs/typeflags",
+    "kernel/libs/typeflags-util",
+    "kernel/libs/atomic-integer-wrapper",
+    "kernel/libs/xarray",
+]
+exclude = [
+    "kernel/libs/comp-sys/cargo-component",
+    "kernel/libs/comp-sys/component",
+    "kernel/libs/comp-sys/component-macro",
+    "kernel/libs/comp-sys/controlled",
+    "osdk",
+]
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+
+# Cargo only looks at the profile settings 
+# in the Cargo.toml manifest at the root of the workspace
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+lto = "thin"
+panic = "unwind"
+
+# Release profile configuration with Link Time Optimization (LTO) enabled.
+#
+# This profile is optimized for maximum runtime performance, 
+# (achieving a 2% reduction in latency for the getpid system call).
+# However, enabling LTO significantly increases compilation times,
+# approximately doubling them compared to when LTO is not enabled.
+[profile.release-lto]
+inherits = "release"
+lto = true
+# lto can only be enabled when panic strategy is abort
+panic = "abort"
+# set codegen-units as the smallest number
+codegen-units = 1
