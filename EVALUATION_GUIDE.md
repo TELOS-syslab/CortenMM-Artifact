@@ -107,13 +107,13 @@ Note that the artifact still has the following limitations, which are noted in t
 This may take several hours.
 
 ```bash
-./scripts/run_all_experiments.sh
+./scripts/host_run_all_experiments.sh
 ```
 
 After all the experiments are finished, you can generate all the figures via the following command.
 
 ```bash
-./scripts/plot_all_experiments.sh
+./scripts/host_plot_all_experiments.sh
 ```
 
 ### *Step by Step
