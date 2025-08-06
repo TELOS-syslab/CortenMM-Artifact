@@ -13,8 +13,10 @@ An x86-64 machine with an arbitrary Linux install is suffice. The more cores the
 Please [install Docker](https://docs.docker.com/engine/install/) if your machine hasn't installed it. We have prepared a docker image (~29 GB) containing the running environment and the benchmark input data. Please pull it first.
 
 ```bash
-docker pull ghcr.io/telos-syslab/cortenmm-artifact-env:v2
+docker pull ghcr.io/telos-syslab/cortenmm-artifact-env:v4
 ```
+
+See [the difference between artifact image versions](./DOCKER_ENV_IMAGE_VERSIONS.md) if you want to use an older image version.
 
 You can add your user to the `docker` user group to use the Docker commands and the automated scripts without `sudo`. Otherwise, please add `sudo` to run all the `host_` prefixed scripts and docker commands mentioned in this guide.
 
@@ -38,7 +40,7 @@ Reading sections marked with "*" is not strictly neccessary. However it is bette
 The following command will start a container named `cortenmm-ae`; put you into the container's interactive shell (`-it` option); and mount the host's current directory inside the container (`-v option`). So that modifications (if any) to the downloaded repository in the host side can be directly seen and compiled in the container, which is convienient if you are using host side GUI editors like VSCode. Reproduction results can also be seen from the host's file explorer.
 
 ```bash
-docker run --name cortenmm-ae -it --privileged --network=host --device=/dev/kvm -v $(pwd):/root/asterinas ghcr.io/telos-syslab/cortenmm-artifact-env:v2
+docker run --name cortenmm-ae -it --privileged --network=host --device=/dev/kvm -v $(pwd):/root/asterinas ghcr.io/telos-syslab/cortenmm-artifact-env:v4
 ```
 
 In fact, the automated scripts use this technique. So your modifications will also effect the automated runs.

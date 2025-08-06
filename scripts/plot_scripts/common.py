@@ -1,5 +1,7 @@
 # Common functions for plotting
 
+# System names
+
 SYS = r"\textsc{CortenMM}"
 SYS_RW = r"\textsc{CortenMM}$_\mathrm{rw}$"
 SYS_ADV = r"\textsc{CortenMM}$_\mathrm{adv}$"
@@ -144,3 +146,27 @@ def styled_bar(bar_fn, x, y, color, hatch, color_hatch_only=True, **kwargs):
         bar_fn(x, y, facecolor=color, hatch=hatch, edgecolor='black', **kwargs)
 
     return 
+
+def get_experiment_output_dir():
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(script_dir, "../../experiment_outputs/")
+
+def find_latest_experiment_output(bench_name, sys_name):
+    import os
+    import re
+
+    output_dir = get_experiment_output_dir()
+    pattern = re.compile(rf"{bench_name}_{sys_name}_(\d{{14}})\.log")
+    latest_file = None
+    latest_timestamp = None
+
+    for filename in os.listdir(output_dir):
+        match = pattern.match(filename)
+        if match:
+            timestamp = match.group(1)
+            if latest_timestamp is None or timestamp > latest_timestamp:
+                latest_timestamp = timestamp
+                latest_file = filename
+
+    return os.path.join(output_dir, latest_file) if latest_file else None
