@@ -41,6 +41,7 @@ copy_files_to_ramfs() {
   
   # Create destination directory if it doesn't exist
   mkdir -p $DST_DIR
+  chmod 777 $DST_DIR
   
   # Copy all files from source to destination
   echo "Copying files from $SRC_DIR to $DST_DIR..."

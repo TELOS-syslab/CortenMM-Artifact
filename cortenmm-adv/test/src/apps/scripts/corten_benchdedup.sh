@@ -13,6 +13,7 @@ fi
 DO_ASTER_BREAKDOWN=$3
 
 # Copy the text file to ramfs
+chmod 777 /root
 cp /benchmark/bin/vm_scale_bench_data/800MB.txt /root
 
 if [ "$MALLOC" == "tc" ]; then

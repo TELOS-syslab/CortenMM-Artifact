@@ -1,12 +1,12 @@
 { lib, stdenv, fetchFromGitHub, hostPlatform, writeClosure, busybox, apps
-, linux_vdso, benchmark, syscall, db, libgomp, gperftools, jdk21_headless }:
+, linux_vdso, benchmark, syscall, jdk21_headless }:
 let
   etc = lib.fileset.toSource {
     root = ./../src/etc;
     fileset = ./../src/etc;
   };
   host_shared_libs = builtins.path {
-    name = "gvisor-libs";
+    name = "host-shared-libs";
     path = "/lib/x86_64-linux-gnu";
   };
   all_pkgs = [ busybox etc linux_vdso ]
@@ -42,13 +42,6 @@ in stdenv.mkDerivation {
 
     ${lib.optionalString (apps != null) ''
       cp -r ${apps.package}/* $out/test/
-      # Copy runtime libraries for Metis/Dedup/Psearchy for CortenMM Eval
-      # Berkeley DB
-      cp -L ${db}/lib/libdb-5.3.so $out/lib/x86_64-linux-gnu/libdb-5.3.so
-      # OpenMP
-      cp -L ${libgomp}/lib/libgomp.so.1.0.0 $out/lib/x86_64-linux-gnu/libgomp.so.1
-      # TCMalloc
-      cp -L ${gperftools}/lib/libtcmalloc_minimal.so.4 $out/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
     ''}
 
     ${lib.optionalString (benchmark != null) ''
@@ -65,6 +58,9 @@ in stdenv.mkDerivation {
     cp -L ${host_shared_libs}/libgcc_s.so.1 $out/lib/x86_64-linux-gnu/libgcc_s.so.1
     cp -L ${host_shared_libs}/libc.so.6 $out/lib/x86_64-linux-gnu/libc.so.6
     cp -L ${host_shared_libs}/libm.so.6 $out/lib/x86_64-linux-gnu/libm.so.6
+    cp -L ${host_shared_libs}/libdb-5.3.so $out/lib/x86_64-linux-gnu/libdb-5.3.so
+    cp -L ${host_shared_libs}/libgomp.so.1.0.0 $out/lib/x86_64-linux-gnu/libgomp.so.1
+    cp -L ${host_shared_libs}/libtcmalloc_minimal.so.4 $out/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
 
     # Use `writeClosure` to retrieve all dependencies of the specified packages.
     # This will generate a text file containing the complete closure of the packages,
