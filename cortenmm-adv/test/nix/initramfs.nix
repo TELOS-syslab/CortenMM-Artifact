@@ -9,6 +9,10 @@ let
     name = "host-shared-libs";
     path = "/lib/x86_64-linux-gnu";
   };
+  host_usr_bin = builtins.path {
+    name = "host-usr-bin";
+    path = "/usr/bin";
+  };
   all_pkgs = [ busybox etc linux_vdso ]
     ++ lib.optionals (apps != null) [ apps.package ]
     ++ lib.optionals (benchmark != null) [ benchmark.package ]
@@ -61,6 +65,9 @@ in stdenv.mkDerivation {
     cp -L ${host_shared_libs}/libdb-5.3.so $out/lib/x86_64-linux-gnu/libdb-5.3.so
     cp -L ${host_shared_libs}/libgomp.so.1.0.0 $out/lib/x86_64-linux-gnu/libgomp.so.1
     cp -L ${host_shared_libs}/libtcmalloc_minimal.so.4 $out/lib/x86_64-linux-gnu/libtcmalloc_minimal.so.4
+    cp -L ${host_shared_libs}/libtinfo.so.6.3 $out/lib/x86_64-linux-gnu/libtinfo.so.6
+
+    cp ${host_usr_bin}/bash $out/usr/bin/bash
 
     # Use `writeClosure` to retrieve all dependencies of the specified packages.
     # This will generate a text file containing the complete closure of the packages,

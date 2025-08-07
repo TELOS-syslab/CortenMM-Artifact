@@ -17,6 +17,7 @@ data_dir=/root
 data_source_dir=/benchmark/bin/vm_scale_bench_data
 
 echo "Copying input files to ramfs"
+chmod -R 777 ${data_dir}
 mkdir -p "${data_dir}/${APP}/"
 cp -r "${data_source_dir}/${APP}" "${data_dir}/"
 echo "Copying input files to ramfs done"

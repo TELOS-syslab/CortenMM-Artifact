@@ -169,6 +169,9 @@ $(EXFAT_IMAGE):
 	@fallocate -l 64M $(EXFAT_IMAGE)
 	@mkfs.exfat $(EXFAT_IMAGE)
 
+PARSEC_KERNELS = canneal streamcluster dedup
+PARSEC_APPS = blackscholes bodytrack facesim ferret fluidanimate freqmine vips x264
+
 $(BENCH_DATA_IMAGE): /root/mm-scalability-benchmark
 	@dd if=/dev/zero of=$(BENCH_DATA_IMAGE) bs=2G count=4 iflag=fullblock
 	@mkfs.ext2 $(BENCH_DATA_IMAGE)
@@ -178,8 +181,8 @@ $(BENCH_DATA_IMAGE): /root/mm-scalability-benchmark
 		cp -r /root/mm-scalability-benchmark/data/* /mnt/data_mount/; \
 		cp -r /root/linux-2.6.35 /mnt/data_mount/; \
 		for i in $(PARSEC_KERNELS); do \
+			mkdir -p /mnt/data_mount/$$i; \
 			if [ "$$i" != "streamcluster" ]; then \
-				mkdir -p /mnt/data_mount/$$i; \
 				tar -xf /root/mm-scalability-benchmark/parsec-3.0/pkgs/kernels/$$i/inputs/input_native.tar -C /mnt/data_mount/$$i; \
 			fi; \
 		done; \
