@@ -14,6 +14,12 @@ if [ "$SYS_NAME" != "linux" ] && [ "$SYS_NAME" != "corten-rw" ] && [ "$SYS_NAME"
     exit 1
 fi
 
+if [ "$SYS_NAME" == "corten-adv" ]; then
+    make -C $SCRIPT_DIR/../../cortenmm-adv clean # to avoid annoying Cargo lock errors
+elif [ "$SYS_NAME" == "corten-rw" ]; then
+    make -C $SCRIPT_DIR/../../cortenmm-rw clean # to avoid annoying Cargo lock errors
+fi
+
 DO_ASTER_BREAKDOWN=$2
 if [ "$SYS_NAME" == "linux" ]; then
     DO_ASTER_BREAKDOWN=""

@@ -135,4 +135,6 @@ Below is a table of checkboxes that corresponds to each benchmark run. And each 
 | RadixVM          | a4. [ ] |         | c4. [ ] |         |          |         |
 | NrOS             | a5. [ ] |         |         |         |          |         |
 
-After all commands in related columns are run, the corresponding plotting script can be used to generate plots in the paper. For example, to have Figure 14, you need to run b1~b3 and c1~c4. Each run will generate one log file in `./experiment_outputs`, which is later parsed by the plotting scripts.
+To see the specific command to run for each checkbox, see [this script](scripts/container_run_all_experiments.sh).
+
+After all commands in related columns are run, the corresponding plotting script can be used to generate plots in the paper. For example, to have Figure 14, you need to run b1\~b3 and c1\~c4. Each run will generate one log file in `./experiment_outputs`, which is later parsed by the plotting scripts.

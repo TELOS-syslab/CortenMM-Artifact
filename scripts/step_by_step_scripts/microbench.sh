@@ -14,6 +14,12 @@ if [ "$SYS_NAME" != "linux" ] && [ "$SYS_NAME" != "corten-rw" ] && [ "$SYS_NAME"
     exit 1
 fi
 
+if [ "$SYS_NAME" == "corten-adv" ]; then
+    make -C $SCRIPT_DIR/../../cortenmm-adv clean # to avoid annoying Cargo lock errors
+elif [ "$SYS_NAME" == "corten-rw" ]; then
+    make -C $SCRIPT_DIR/../../cortenmm-rw clean # to avoid annoying Cargo lock errors
+fi
+
 BENCH_OUTPUT_FILE="microbench_${SYS_NAME}_$(date +%Y%m%d%H%M%S).log"
 
 THREAD_COUNTS=(1 2 4 8 16 32 64 128 192 256 320 384)
