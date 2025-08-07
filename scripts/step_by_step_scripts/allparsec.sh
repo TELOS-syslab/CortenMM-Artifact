@@ -26,7 +26,7 @@ if [ "$SYS_NAME" == "linux" ]; then
 fi
 
 if [ "$SYS_NAME" == "linux" ]; then
-    EXTRA_MNT_CMDS="mount -t devtmpfs devtmpfs /dev; mount -t ext2 /dev/vdb /benchmark/bin/vm_scale_bench_data"
+    EXTRA_MNT_CMDS="mount -t devtmpfs devtmpfs /dev; mount -t ext2 /dev/vda /benchmark/bin/vm_scale_bench_data"
 else
     EXTRA_MNT_CMDS="echo 0"
 fi
