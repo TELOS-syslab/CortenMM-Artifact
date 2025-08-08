@@ -25,7 +25,6 @@ BENCH_OUTPUT_FILE="$TEST_RESULTS_DIR/$BENCH_OUTPUT_FILE_NAME"
 if [ "$BENCH_TARGET" == "linux" ]; then
     START_VM_CMD="$SCRIPT_DIR/start_linux.sh $NR_CPUS"
     EXIT_COMMAND="; poweroff -f"
-    pushd "$SCRIPT_DIR/../../cortenmm-adv"
 elif [ "$BENCH_TARGET" == "corten-rw" ] || [ "$BENCH_TARGET" == "corten-adv" ]; then
     START_VM_CMD="make run SMP=$NR_CPUS MEM=240G RELEASE_LTO=1 $CORTEN_RUN_ARGS"
     EXIT_COMMAND="; exit"
@@ -70,5 +69,3 @@ tmux send-keys -t ${TMUX_SESSION_NAME}:0 "${COMMAND_IN_VM}" Enter
 tmux attach -t ${TMUX_SESSION_NAME}:0
 
 unset QMP_PORT
-
-popd

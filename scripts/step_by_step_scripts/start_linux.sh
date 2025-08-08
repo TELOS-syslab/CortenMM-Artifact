@@ -15,9 +15,6 @@ fi
 
 LINUX_KERNEL="/root/linux-6.13.8/bzImage"
 
-# Disable unsupported ext2 features of Asterinas on Linux to ensure fairness
-mke2fs -F -O ^ext_attr -O ^resize_inode -O ^dir_index ${BENCH_IMG_PATH}
-
 /usr/local/qemu/bin/qemu-system-x86_64 \
     --no-reboot \
     -smp $CORE_COUNT \
@@ -27,8 +24,8 @@ mke2fs -F -O ^ext_attr -O ^resize_inode -O ^dir_index ${BENCH_IMG_PATH}
     --enable-kvm \
     -kernel ${LINUX_KERNEL} \
     -initrd ${INITRAMFS_PATH} \
-    -drive if=none,format=raw,id=x2,file=${BENCH_IMG_PATH} \
-    -device virtio-blk-pci,bus=pcie.0,addr=0x7,drive=x2,serial=vbench,disable-legacy=on,disable-modern=off,queue-size=64,num-queues=1,config-wce=off,request-merging=off,write-cache=off,backend_defaults=off,discard=off,event_idx=off,indirect_desc=off,ioeventfd=off,queue_reset=off \
+    -drive if=none,format=raw,id=x0,file=${BENCH_IMG_PATH} \
+    -device virtio-blk-pci,bus=pcie.0,addr=0x6,drive=x0,serial=vbench_data,disable-legacy=on,disable-modern=off,queue-size=64,num-queues=1,config-wce=off,request-merging=off,write-cache=off,backend_defaults=off,discard=off,event_idx=off,indirect_desc=off,ioeventfd=off,queue_reset=off \
     -append 'console=ttyS0 rdinit=/usr/bin/busybox quiet mitigations=off hugepages=0 transparent_hugepage=never SHELL=/bin/sh LOGNAME=root HOME=/ USER=root PATH=/bin:/benchmark -- sh -l' \
     -qmp tcp:127.0.0.1:${QMP_PORT-9889},server,nowait \
     -nographic
