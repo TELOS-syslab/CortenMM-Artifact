@@ -43,16 +43,17 @@ def plot(axs):
         ratios = []
 
         for bench_name, bench_data in benchmarks.items():
-            linux_name = LINUX_PT
-            if bench_name != "Psearchy":
-                sys_name_corr = sys_name
+            if bench_name == "Metis" and bench_name == "JVM":
                 linux_name = LINUX
-            elif sys_name == "Linux":
-                sys_name_corr = LINUX_PT
-            elif sys_name == SYS_ADV:
-                sys_name_corr = SYS_ADV_PT
-            elif sys_name == SYS_RW:
-                sys_name_corr = SYS_RW_PT
+                sys_name_corr = sys_name
+            else:
+                linux_name = LINUX_PT
+                if sys_name == "Linux":
+                    sys_name_corr = LINUX_PT
+                elif sys_name == SYS_ADV:
+                    sys_name_corr = SYS_ADV_PT
+                elif sys_name == SYS_RW:
+                    sys_name_corr = SYS_RW_PT
             
             if bench_name == "JVM":
                 # This is lat
@@ -66,6 +67,7 @@ def plot(axs):
                 # This is tput
                 if sys_name_corr in bench_data and 1 in bench_data[sys_name_corr]:
                     tput = bench_data[sys_name_corr][1]
+                    print(bench_name, sys_name_corr, linux_name, benchmarks[bench_name][linux_name])
                     ratio = tput / benchmarks[bench_name][linux_name][1]
                     ratios.append(ratio)
                 else:

@@ -152,7 +152,7 @@ def get_experiment_output_dir():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(script_dir, "../../experiment_outputs/")
 
-def find_latest_experiment_output(bench_name, sys_name):
+def find_and_read_latest_experiment_output(bench_name, sys_name):
     import os
     import re
 
@@ -168,5 +168,17 @@ def find_latest_experiment_output(bench_name, sys_name):
             if latest_timestamp is None or timestamp > latest_timestamp:
                 latest_timestamp = timestamp
                 latest_file = filename
+    if latest_file is None:
+        print(f"ERROR: No log file found for {bench_name} and {sys_name}.")
+        return None
+    
+    path = os.path.join(output_dir, latest_file)
 
-    return os.path.join(output_dir, latest_file) if latest_file else None
+    try:
+        with open(path, 'r') as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"ERROR: File {path} not found.")
+        return None
+
+    return content

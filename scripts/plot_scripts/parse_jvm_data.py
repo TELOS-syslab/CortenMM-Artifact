@@ -1,4 +1,4 @@
-from common import SYS_ADV, SYS_RW, SYS_BASE, SYS_DVA
+from common import SYS_ADV, SYS_RW, SYS_BASE, SYS_DVA, find_and_read_latest_experiment_output, LINUX
 
 import os
 import re
@@ -10,30 +10,20 @@ def lat_ns_to_ms(lat):
     return lat / 1_000_000
 
 def parse_input():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    data_dir = os.path.join(script_dir, "../data/macro/jvm/")
-    systems_data_raw_file = {
-        SYS_ADV: "aster-rcu.txt",
-        SYS_RW: "aster-rwlock.txt",
-        "Linux": "linux-6.13.8.txt",
-        "RadixVM": "well we didn't run",
-        "NrOS": "well we didn't run",
-        SYS_DVA: "dva.txt",
-        SYS_BASE: "base.txt",
+    systems_data_raw = {
+        SYS_ADV: find_and_read_latest_experiment_output("macrojvm", "corten-adv"),
+        SYS_RW: find_and_read_latest_experiment_output("macrojvm", "corten-rw"),
+        LINUX: find_and_read_latest_experiment_output("macrojvm", "linux"),
+        SYS_DVA: find_and_read_latest_experiment_output("macrojvm", "corten-adv-dva"),
+        SYS_BASE: find_and_read_latest_experiment_output("macrojvm", "corten-base"),
     }
-    systems_data_raw = {k: os.path.join(data_dir, v) for k, v in systems_data_raw_file.items()}
 
     systems_data = {}
-    for system, data_path in systems_data_raw.items():
+    for system, content in systems_data_raw.items():
         # Initialize system data structure
         system_data = {}
 
-        try:
-            with open(data_path, 'r') as f:
-                content = f.read()
-        except FileNotFoundError:
-            print(f"Warning: File {data_path} not found. Skipping {system}.")
+        if content is None:
             systems_data[system] = {}
             continue
 

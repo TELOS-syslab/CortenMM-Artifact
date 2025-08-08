@@ -1,34 +1,26 @@
-from common import LINUX_TC, SYS_ADV_PT, SYS_RW_PT, LINUX_PT, LINUX_TC, SYS_ADV_TC, SYS_RW_TC, SYS_DVA, SYS_BASE
+from common import LINUX_TC, SYS_ADV_PT, SYS_RW_PT, LINUX_PT, LINUX_TC, SYS_ADV_TC, SYS_RW_TC, SYS_DVA, SYS_BASE, find_and_read_latest_experiment_output
 
 import os
 import re
 
 def parse_input():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    data_dir = os.path.join(script_dir, "../data/macro/dedup/")
-    systems_data_raw_file = {
-        SYS_ADV_PT: "aster-rcu.txt",
-        SYS_RW_PT: "aster-rwl.txt",
-        LINUX_PT: "linux-6.13.8.txt",
-        LINUX_TC: "linux-tc.txt",
-        SYS_ADV_TC: "aster-rcu-tc.txt",
-        SYS_DVA: "adv-vpa.txt",
-        SYS_BASE: "base.txt",
+    systems_data_raw = {
+        SYS_ADV_PT: find_and_read_latest_experiment_output("macrodedup", "corten-adv_pt"),
+        SYS_RW_PT: find_and_read_latest_experiment_output("macrodedup", "corten-rw_pt"),
+        LINUX_PT: find_and_read_latest_experiment_output("macrodedup", "linux_pt"),
+        LINUX_TC: find_and_read_latest_experiment_output("macrodedup", "linux_tc"),
+        SYS_ADV_TC: find_and_read_latest_experiment_output("macrodedup", "corten-adv_tc"),
+        SYS_DVA: find_and_read_latest_experiment_output("macrodedup", "corten-adv-dva"),
+        SYS_BASE: find_and_read_latest_experiment_output("macrodedup", "corten-base"),
     }
-    systems_data_raw = { k: os.path.join(data_dir, v) for k, v in systems_data_raw_file.items() }
 
     systems_data = {}
-    for system, data_path in systems_data_raw.items():
+    for system, content in systems_data_raw.items():
         # Initialize system data structure
         system_data = {}
+        systems_data[system] = {}
 
-        try:
-            with open(data_path, 'r') as f:
-                content = f.read()
-        except FileNotFoundError:
-            print(f"Warning: File {data_path} not found. Skipping {system}.")
-            systems_data[system] = {}
+        if content is None:
             continue
 
         # Find all benchmark blocks

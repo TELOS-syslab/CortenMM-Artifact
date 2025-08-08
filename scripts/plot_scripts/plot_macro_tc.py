@@ -6,11 +6,10 @@ from parse_psearchy_data import parse_input as parse_psearchy_input
 
 from parse_jvm_data import parse_input as parse_jvm_input
 
-from aster_breakdowndata import parse_breakdowns as parse_aster_breakdowns
-from breakdown import plot_linux_perf_breakdown, plot_breakdown
+# from aster_breakdowndata import parse_breakdowns as parse_aster_breakdowns
+# from breakdown import plot_linux_perf_breakdown, plot_breakdown
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 import os
 from matplotlib.gridspec import GridSpec
@@ -43,20 +42,20 @@ def main():
     axs[1, 2, 1] = fig.add_subplot(gs[3, 2])  # bottom of axs[1, 2]
 
     plot(axs[0, 0, 0], parse_dedup_input())
-    plot_linux_perf_breakdown(axs[0, 1, 0], "dedup")
-    plot_linux_perf_breakdown(axs[0, 1, 1], "dedup-tc")
-    aster_breakdown = parse_aster_breakdowns("dedup")
-    plot_breakdown(axs[0, 2, 0], aster_breakdown, yticklabel=True)
-    aster_breakdown_tc = parse_aster_breakdowns("dedup-tc")
-    plot_breakdown(axs[0, 2, 1], aster_breakdown_tc, yticklabel=True)
+    # plot_linux_perf_breakdown(axs[0, 1, 0], "dedup")
+    # plot_linux_perf_breakdown(axs[0, 1, 1], "dedup-tc")
+    # aster_breakdown = parse_aster_breakdowns("dedup")
+    # plot_breakdown(axs[0, 2, 0], aster_breakdown, yticklabel=True)
+    # aster_breakdown_tc = parse_aster_breakdowns("dedup-tc")
+    # plot_breakdown(axs[0, 2, 1], aster_breakdown_tc, yticklabel=True)
 
     plot(axs[1, 0, 0], parse_psearchy_input(), xtick=True)
-    plot_linux_perf_breakdown(axs[1, 1, 0], "psearchy")
-    plot_linux_perf_breakdown(axs[1, 1, 1], "psearchy-tc", xticklabel=True)
-    aster_breakdown = parse_aster_breakdowns("psearchy")
-    plot_breakdown(axs[1, 2, 0], aster_breakdown, yticklabel=True)
-    aster_breakdown_tc = parse_aster_breakdowns("psearchy-tc")
-    plot_breakdown(axs[1, 2, 1], aster_breakdown_tc, yticklabel=True, xticklabel=True)
+    # plot_linux_perf_breakdown(axs[1, 1, 0], "psearchy")
+    # plot_linux_perf_breakdown(axs[1, 1, 1], "psearchy-tc", xticklabel=True)
+    # aster_breakdown = parse_aster_breakdowns("psearchy")
+    # plot_breakdown(axs[1, 2, 0], aster_breakdown, yticklabel=True)
+    # aster_breakdown_tc = parse_aster_breakdowns("psearchy-tc")
+    # plot_breakdown(axs[1, 2, 1], aster_breakdown_tc, yticklabel=True, xticklabel=True)
 
     # Get all handles and labels from the first tput
     handles, labels = axs[0, 0, 0].get_legend_handles_labels()
@@ -101,6 +100,10 @@ def main():
     }
     for bench_name, data in benches.items():
         for c in [64, 128, 384]:
+            if c not in data[LINUX_PT] or c not in data[SYS_ADV_PT] or c not in data[SYS_RW_PT]:
+                print(f"[{c}] {bench_name}: Missing data, skipping gain calculation.")
+                continue
+
             linux_tput = data[LINUX_PT][c]
             sys_adv_tput = data[SYS_ADV_PT][c]
             sys_rw_tput = data[SYS_RW_PT][c]

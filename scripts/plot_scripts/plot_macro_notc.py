@@ -6,11 +6,10 @@ from parse_psearchy_data import parse_input as parse_psearchy_input
 
 from parse_jvm_data import parse_input as parse_jvm_input
 
-from aster_breakdowndata import parse_breakdowns as parse_aster_breakdowns
-from breakdown import plot_linux_perf_breakdown, plot_breakdown
+# from aster_breakdowndata import parse_breakdowns as parse_aster_breakdowns
+# from breakdown import plot_linux_perf_breakdown, plot_breakdown
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 import os
 
@@ -22,14 +21,14 @@ def main():
     fig, axs = plt.subplots(2, 3, figsize=(4, 2), dpi=400, gridspec_kw={'width_ratios': [1.5, 1, 1]})
 
     plot(axs[0, 0], parse_jvm_input())
-    plot_linux_perf_breakdown(axs[0, 1], "jvm")
-    aster_breakdown = parse_aster_breakdowns("jvm")
-    plot_breakdown(axs[0, 2], aster_breakdown, yticklabel=True)
+    # plot_linux_perf_breakdown(axs[0, 1], "jvm")
+    # aster_breakdown = parse_aster_breakdowns("jvm")
+    # plot_breakdown(axs[0, 2], aster_breakdown, yticklabel=True)
 
     plot(axs[1, 0], parse_metis_input(), xtick=True)
-    plot_linux_perf_breakdown(axs[1, 1], "metis", xticklabel=True)
-    aster_breakdown = parse_aster_breakdowns("metis")
-    plot_breakdown(axs[1, 2], aster_breakdown, yticklabel=True, xticklabel=True)
+    # plot_linux_perf_breakdown(axs[1, 1], "metis", xticklabel=True)
+    # aster_breakdown = parse_aster_breakdowns("metis")
+    # plot_breakdown(axs[1, 2], aster_breakdown, yticklabel=True, xticklabel=True)
 
     # Get all handles and labels from the second tput
     handles, labels = axs[1, 0].get_legend_handles_labels()
@@ -60,6 +59,10 @@ def main():
     }
     for bench_name, data in benches.items():
         for c in [64, 128, 384]:
+            if c not in data["Linux"] or c not in data[SYS_ADV] or c not in data[SYS_RW]:
+                print(f"[{c}] {bench_name}: Missing data, skipping gain calculation.")
+                continue
+
             linux_tput = data["Linux"][c]
             sys_adv_tput = data[SYS_ADV][c]
             sys_rw_tput = data[SYS_RW][c]

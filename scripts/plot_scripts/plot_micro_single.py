@@ -1,4 +1,4 @@
-from microdata import parse_input
+from parse_micro_data import parse_input
 from common import common_plt_setting, get_presets, common_ax_setting, styled_bar, SYS_ADV, SYS_RW
 
 import os
@@ -48,10 +48,18 @@ def main():
 
         if sys_name  == "NrOS":
             tputs.append(0) # mmap
-            tputs.append(avg_lat_to_tput(sum(bench_data["map"][1][-16:]) / 16)) # mmap-pf
+            try:
+                tputs.append(avg_lat_to_tput(sum(bench_data["map"][1][-16:]) / 16)) # mmap-pf
+            except KeyError:
+                print("ERROR: NrOS mmap-pf data missing, setting to 0")
+                tputs.append(0)
             tputs.append(0) # pf
             tputs.append(0) # munmap-virt
-            tputs.append(avg_lat_to_tput(sum(bench_data["unmap"][1][-16:]) / 16)) # munmap
+            try:
+                tputs.append(avg_lat_to_tput(sum(bench_data["unmap"][1][-16:]) / 16)) # munmap
+            except KeyError:
+                print("ERROR: NrOS munmap data missing, setting to 0")
+                tputs.append(0)
         else:
             for benchmark in benchmarks.keys():
                 if benchmark in bench_data:

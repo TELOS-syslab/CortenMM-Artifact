@@ -1,51 +1,30 @@
-from common import SYS_ADV, SYS_RW
+from common import SYS_ADV, SYS_RW, find_and_read_latest_experiment_output
 
 import os
 import re
 import json
 
-# NROS uses a different json format
+# NROS uses a different output format
 def nros_input():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(script_dir, "../data/micro/")
-    nros_json = os.path.join(data_dir, "nros.json")
-    
-    data = json.load(open(nros_json, 'r'))
-
-    # change the type of keys from string to int
-    keys = list(data["map"].keys())
-    for key in keys:
-        data["map"][int(key)] = data["map"].pop(key)
-
-    keys = list(data["unmap"].keys())
-    for key in keys:
-        data["unmap"][int(key)] = data["unmap"].pop(key)
-
-    data["map"][128] = data["map"].pop(127)
-
-    data["unmap"][4] = data["unmap"].pop(3)
-
-    return data
+    print("WARNING: NROS script not implemented yet, using dummy data")
+    return { "map": {}, "unmap": {} }
 
 def parse_input():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    data_dir = os.path.join(script_dir, "../data/micro/")
-    systems_data_raw_file = {
-        SYS_ADV: "aster-rcu.txt",
-        SYS_RW: "aster-rwl.txt",
-        "Linux": "linux-6.13.8.txt",
-        "RadixVM": "radixvm.txt"
+    systems_data_raw = {
+        SYS_ADV: find_and_read_latest_experiment_output("microbench", "corten-adv"),
+        SYS_RW: find_and_read_latest_experiment_output("microbench", "corten-rw"),
+        "Linux": find_and_read_latest_experiment_output("microbench", "linux"),
+        "RadixVM": find_and_read_latest_experiment_output("microbench", "radixvm")
     }
-    systems_data_raw = { k: os.path.join(data_dir, v) for k, v in systems_data_raw_file.items() }
 
     systems_data = {}
-    for system, data_path in systems_data_raw.items():
-        with open(data_path, 'r') as f:
-            content = f.read()
-
+    for system, content in systems_data_raw.items():
         # Initialize system data structure
         system_data = {}
+
+        if content is None:
+            systems_data[system] = {}
+            continue
 
         # Find all benchmark blocks
         blocks = re.split(r'\*\*\*(.*?)\*\*\*', content)
@@ -69,6 +48,10 @@ def parse_input():
                     # Initialize benchmark data if not exists
                     if benchmark_name not in system_data:
                         system_data[benchmark_name] = {}
+                    
+                    # TODO: Adjust all TSC frequencies to 2.25 GHz. Some of them uses 1.9 GHz still
+                    if system == "Linux":
+                        lat_values = [x * 190 / 225 for x in lat_values]
 
                     # Store the latency values for this thread count
                     system_data[benchmark_name][thread_count] = lat_values

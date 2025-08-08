@@ -1,4 +1,4 @@
-from microdata import parse_input
+from parse_micro_data import parse_input
 from common import common_plt_setting, get_presets, common_ax_setting, SYS_ADV, SYS_RW
 
 import os
@@ -135,6 +135,10 @@ def main():
         if benchmark not in data["Linux"] or benchmark not in data[SYS_ADV] or benchmark not in data[SYS_RW]:
             continue
         for c in [64, 384]:
+            if c not in data["Linux"][benchmark] or c not in data[SYS_ADV][benchmark] or c not in data[SYS_RW][benchmark]:
+                print(f"{benchmark} [{c}]: Missing data, skipping gain calculation.")
+                continue
+
             linux_lat = sum(data["Linux"][benchmark][c][-16:]) / 16
             linux_tput = avg_lat_to_tput(linux_lat, c)
             

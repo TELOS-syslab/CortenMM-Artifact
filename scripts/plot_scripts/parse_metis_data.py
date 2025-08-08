@@ -1,4 +1,4 @@
-from common import SYS_ADV, SYS_RW, SYS_BASE, SYS_DVA
+from common import SYS_ADV, SYS_RW, SYS_BASE, SYS_DVA, LINUX, find_and_read_latest_experiment_output
 
 import os
 import re
@@ -12,32 +12,23 @@ def finish_time_to_tput(finish_time):
     return (60 * 1e3) / finish_time
 
 def parse_input():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    data_dir = os.path.join(script_dir, "../data/macro/metis/")
-    systems_data_raw_file = {
-        SYS_ADV: "aster-rcu.txt",
-        SYS_RW: "aster-rwlock.txt",
-        "Linux": "linux-6.13.8.txt",
-        "RadixVM": "radixvm.txt",
-        "NrOS": "well we didn't run",
-        SYS_DVA: "dva.txt",
-        SYS_BASE: "base.txt",
+    systems_data_raw = {
+        SYS_ADV: find_and_read_latest_experiment_output("macrometis", "corten-adv"),
+        SYS_RW: find_and_read_latest_experiment_output("macrometis", "corten-rw"),
+        LINUX: find_and_read_latest_experiment_output("macrometis", "linux"),
+        "RadixVM": find_and_read_latest_experiment_output("macrometis", "radixvm"),
+        SYS_DVA: find_and_read_latest_experiment_output("macrometis", "corten-adv-dva"),
+        SYS_BASE: find_and_read_latest_experiment_output("macrometis", "corten-base"),
     }
-    systems_data_raw = { k: os.path.join(data_dir, v) for k, v in systems_data_raw_file.items() }
 
     systems_data = {}
-    for system, data_path in systems_data_raw.items():
-        try:
-            with open(data_path, 'r') as f:
-                content = f.read()
-        except FileNotFoundError:
-            print(f"Warning: File {data_path} not found. Skipping {system}.")
-            systems_data[system] = {}
-            continue
-
+    for system, content in systems_data_raw.items():
         # Initialize system data structure
         system_data = {}
+
+        if content is None:
+            systems_data[system] = {}
+            continue
 
         # Find all benchmark blocks
         if system == "RadixVM":
