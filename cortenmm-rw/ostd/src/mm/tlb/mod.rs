@@ -192,6 +192,54 @@ pub enum TlbFlushOp {
     Range(Range<Vaddr>),
 }
 
+/// Since virtual addresses are page aligned, bit 0~11 are for the length. The
+/// rest of the bits are for the start address. All zero is `None`, and all `1`
+/// is `All`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TlbFlushOpEncoded(u64);
+
+impl TlbFlushOp {
+    /// Encodes the TLB flush operation into a u64 value.
+    fn encode(&self) -> TlbFlushOpEncoded {
+        match self {
+            TlbFlushOp::All => TlbFlushOpEncoded(u64::MAX),
+            TlbFlushOp::Address(addr) => TlbFlushOpEncoded(*addr as u64 | 0b1),
+            TlbFlushOp::Range(range) => {
+                let start = range.start as u64;
+                let len = range.len();
+                debug_assert!(len > 0);
+                debug_assert!(len % PAGE_SIZE == 0);
+                let npages = len / PAGE_SIZE;
+                if npages >= FLUSH_ALL_OPS_THRESHOLD {
+                    // If the range is too large, flush all.
+                    return TlbFlushOpEncoded(u64::MAX);
+                }
+                TlbFlushOpEncoded(start | (npages as u64))
+            }
+        }
+    }
+}
+
+impl TlbFlushOpEncoded {
+    /// Decodes the TLB flush operation from a u64 value.
+    fn decode(&self) -> Option<TlbFlushOp> {
+        if self.0 == 0 {
+            return None;
+        }
+        if self.0 == u64::MAX {
+            return Some(TlbFlushOp::All);
+        }
+        let addr = self.0 & !(PAGE_SIZE as u64 - 1);
+        let npages = self.0 & (PAGE_SIZE as u64 - 1);
+        if npages == 0 {
+            Some(TlbFlushOp::Address(addr as Vaddr))
+        } else {
+            let len = npages as Vaddr * PAGE_SIZE;
+            Some(TlbFlushOp::Range(addr as Vaddr..addr as Vaddr + len))
+        }
+    }
+}
+
 impl TlbFlushOp {
     /// Performs the TLB flush operation on the current CPU.
     pub fn perform_on_current(&self) {
@@ -254,7 +302,7 @@ const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE;
 const FLUSH_ALL_OPS_THRESHOLD: usize = 32;
 
 struct OpsStack {
-    ops: [Option<TlbFlushOp>; FLUSH_ALL_OPS_THRESHOLD],
+    ops: [TlbFlushOpEncoded; FLUSH_ALL_OPS_THRESHOLD],
     need_flush_all: bool,
     size: usize,
     page_keeper: Vec<Frame<dyn AnyFrameMeta>>,
@@ -263,7 +311,7 @@ struct OpsStack {
 impl OpsStack {
     const fn new() -> Self {
         Self {
-            ops: [const { None }; FLUSH_ALL_OPS_THRESHOLD],
+            ops: [const { TlbFlushOpEncoded(0) }; FLUSH_ALL_OPS_THRESHOLD],
             need_flush_all: false,
             size: 0,
             page_keeper: Vec::new(),
@@ -289,7 +337,7 @@ impl OpsStack {
             return;
         }
 
-        self.ops[self.size] = Some(op);
+        self.ops[self.size] = op.encode();
         self.size += 1;
     }
 
@@ -306,7 +354,7 @@ impl OpsStack {
         }
 
         for i in 0..other.size {
-            self.ops[self.size] = other.ops[i].clone();
+            self.ops[self.size] = other.ops[i];
             self.size += 1;
         }
     }
@@ -316,7 +364,7 @@ impl OpsStack {
             crate::arch::mm::tlb_flush_all_excluding_global();
         } else {
             for i in 0..self.size {
-                if let Some(op) = &self.ops[i] {
+                if let Some(op) = &self.ops[i].decode() {
                     op.perform_on_current();
                 }
             }

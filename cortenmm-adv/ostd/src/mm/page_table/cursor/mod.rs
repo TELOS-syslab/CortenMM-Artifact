@@ -118,23 +118,19 @@ impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    pub fn new(
-        pt: &'rcu PageTable<C>,
-        guard: &'rcu dyn InAtomicMode,
-        va: &Range<Vaddr>,
-    ) -> Result<Self, PageTableError> {
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu dyn InAtomicMode, va: &Range<Vaddr>) -> Self {
         if !is_valid_range::<C>(va) || va.is_empty() {
-            return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
+            panic!("Invalid virtual address range: {va:?}");
         }
         if va.start % C::BASE_PAGE_SIZE != 0 || va.end % C::BASE_PAGE_SIZE != 0 {
-            return Err(PageTableError::UnalignedVaddr);
+            panic!("Unaligned virtual address: {va:?}");
         }
 
         const { assert!(C::NR_LEVELS as usize <= MAX_NR_LEVELS) };
 
         zeroed_pt_pool::prefill();
 
-        Ok(locking::lock_range(pt, guard, va))
+        locking::lock_range(pt, guard, va)
     }
 
     /// Gets the current virtual address.
@@ -390,8 +386,8 @@ impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
         pt: &'rcu PageTable<C>,
         guard: &'rcu dyn InAtomicMode,
         va: &Range<Vaddr>,
-    ) -> Result<Self, PageTableError> {
-        Cursor::new(pt, guard, va).map(|inner| Self(inner))
+    ) -> Self {
+        Self(Cursor::new(pt, guard, va))
     }
 
     /// Moves the cursor forward to the next mapped virtual address.

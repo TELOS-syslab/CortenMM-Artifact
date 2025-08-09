@@ -292,9 +292,7 @@ fn handle_kernel_page_fault(info: RawPageFaultInfo) {
         priv_flags,
     };
 
-    let mut cursor = page_table
-        .cursor_mut(&preempt_guard, &(vaddr..vaddr + PAGE_SIZE))
-        .unwrap();
+    let mut cursor = page_table.cursor_mut(&preempt_guard, &(vaddr..vaddr + PAGE_SIZE));
 
     // SAFETY:
     // 1. We have checked that the page fault address falls within the address range of the direct

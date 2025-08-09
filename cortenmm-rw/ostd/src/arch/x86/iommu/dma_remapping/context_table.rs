@@ -317,7 +317,7 @@ impl ContextTable {
 
         let pt = self.get_or_create_page_table(device);
         let preempt_guard = disable_preempt();
-        let mut cursor = pt.cursor_mut(&preempt_guard, &from).unwrap();
+        let mut cursor = pt.cursor_mut(&preempt_guard, &from);
 
         // SAFETY: The safety is upheld by the caller.
         unsafe { cursor.map((paddr, 1, prop)).unwrap() };
@@ -334,9 +334,7 @@ impl ContextTable {
 
         let pt = self.get_or_create_page_table(device);
         let preempt_guard = disable_preempt();
-        let mut cursor = pt
-            .cursor_mut(&preempt_guard, &(daddr..daddr + PAGE_SIZE))
-            .unwrap();
+        let mut cursor = pt.cursor_mut(&preempt_guard, &(daddr..daddr + PAGE_SIZE));
 
         // SAFETY: This unmaps a page from the context table, which is always safe.
         let frag = unsafe { cursor.take_next(PAGE_SIZE) };

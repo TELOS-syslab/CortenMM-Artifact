@@ -28,7 +28,6 @@ mod test_utils {
         unsafe {
             page_table
                 .cursor_mut(&preempt_guard, &virt_range)
-                .unwrap()
                 .map(VmItem::Frame(frame.into(), page_property))
         }
         .expect("First map found an unexpected item");
@@ -45,7 +44,7 @@ mod test_utils {
         prop: PageProperty,
     ) {
         let preempt_guard = disable_preempt();
-        let mut cursor = pt.cursor_mut(&preempt_guard, &(va..va + pa.len())).unwrap();
+        let mut cursor = pt.cursor_mut(&preempt_guard, &(va..va + pa.len()));
         for (paddr, level) in largest_pages::<TestPtConfig>(va, pa.start, pa.len()) {
             let _ = unsafe { cursor.map((paddr, level, prop)) };
         }
@@ -58,7 +57,7 @@ mod test_utils {
         mut protect_op: impl FnMut(&mut PageProperty),
     ) {
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor_mut(&preempt_guard, range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, range);
         while let Some(va_range) = unsafe {
             cursor.protect_next(range.end - cursor.virt_addr(), &mut protect_op, &mut |_| {})
         } {
@@ -171,6 +170,7 @@ mod range_checks {
     use super::{test_utils::*, *};
 
     #[ktest]
+    #[should_panic]
     fn range_check() {
         let page_table = PageTable::<UserPtConfig>::empty();
         let valid_va = 0..PAGE_SIZE;
@@ -179,33 +179,30 @@ mod range_checks {
         let preempt_guard = disable_preempt();
 
         // Valid range succeeds.
-        assert!(page_table.cursor_mut(&preempt_guard, &valid_va).is_ok());
+        let _ = page_table.cursor_mut(&preempt_guard, &valid_va);
 
         // Invalid ranges fail.
-        assert!(page_table.cursor_mut(&preempt_guard, &invalid_va).is_err());
-        assert!(page_table.cursor_mut(&preempt_guard, &kernel_va).is_err());
+        let _ = page_table.cursor_mut(&preempt_guard, &invalid_va);
+        let _ = page_table.cursor_mut(&preempt_guard, &kernel_va);
     }
 
     #[ktest]
+    #[should_panic]
     fn boundary_conditions() {
         let page_table = PageTable::<UserPtConfig>::empty();
         let preempt_guard = disable_preempt();
 
         // Tests an empty range.
         let empty_range = 0..0;
-        assert!(page_table.cursor_mut(&preempt_guard, &empty_range).is_err());
+        page_table.cursor_mut(&preempt_guard, &empty_range);
 
         // Tests an out-of-range virtual address.
         let out_of_range = 0xffff_8000_0000_0000..0xffff_8000_0001_0000;
-        assert!(page_table
-            .cursor_mut(&preempt_guard, &out_of_range)
-            .is_err());
+        page_table.cursor_mut(&preempt_guard, &out_of_range);
 
         // Tests misaligned addresses.
         let unaligned_range = 1..(PAGE_SIZE + 1);
-        assert!(page_table
-            .cursor_mut(&preempt_guard, &unaligned_range)
-            .is_err());
+        let _ = page_table.cursor_mut(&preempt_guard, &unaligned_range);
     }
 
     #[ktest]
@@ -252,7 +249,6 @@ mod page_properties {
         let _ = unsafe {
             page_table
                 .cursor_mut(&preempt_guard, &virtual_range)
-                .unwrap()
                 .map(VmItem::Frame(frame.into(), prop))
         };
         let queried = page_table.page_walk(virtual_range.start + 100).unwrap().1;
@@ -320,7 +316,6 @@ mod overlapping_mappings {
         unsafe {
             page_table
                 .cursor_mut(&preempt_guard, &vrange1)
-                .unwrap()
                 .map((prange1.start, 1, page_property))
                 .expect("Mapping to empty range failed");
         }
@@ -328,7 +323,6 @@ mod overlapping_mappings {
         let res2 = unsafe {
             page_table
                 .cursor_mut(&preempt_guard, &vrange2)
-                .unwrap()
                 .map((prange2.start, 1, page_property))
         };
         let Err(frag) = res2 else {
@@ -356,10 +350,11 @@ mod overlapping_mappings {
 
         // Attempts to map an unaligned virtual address range (expected to panic).
         unsafe {
-            let _ = page_table
-                .cursor_mut(&preempt_guard, &virt_range)
-                .unwrap()
-                .map((phys_range.start, 1, page_property));
+            let _ = page_table.cursor_mut(&preempt_guard, &virt_range).map((
+                phys_range.start,
+                1,
+                page_property,
+            ));
         }
     }
 }
@@ -386,7 +381,6 @@ mod navigation {
                     &preempt_guard,
                     &(FIRST_MAP_ADDR..FIRST_MAP_ADDR + PAGE_SIZE),
                 )
-                .unwrap()
                 .map(VmItem::Frame(frame1.clone().into(), page_property))
                 .unwrap();
         }
@@ -397,7 +391,6 @@ mod navigation {
                     &preempt_guard,
                     &(SECOND_MAP_ADDR..SECOND_MAP_ADDR + PAGE_SIZE),
                 )
-                .unwrap()
                 .map(VmItem::Frame(frame2.clone().into(), page_property))
                 .unwrap();
         }
@@ -410,9 +403,7 @@ mod navigation {
         let (page_table, first_frame, _second_frame) = setup_page_table_with_two_frames();
         let preempt_guard = disable_preempt();
 
-        let mut cursor = page_table
-            .cursor_mut(&preempt_guard, &(0..SECOND_MAP_ADDR + PAGE_SIZE))
-            .unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &(0..SECOND_MAP_ADDR + PAGE_SIZE));
 
         assert_eq!(cursor.virt_addr(), 0);
         assert!(cursor.query().unwrap().1.is_none());
@@ -449,7 +440,7 @@ mod navigation {
         );
 
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range);
 
         cursor.jump(map_va).unwrap();
         unsafe { cursor.map(map_item).unwrap() };
@@ -474,9 +465,7 @@ mod navigation {
         let (page_table, _, _) = setup_page_table_with_two_frames();
         let preempt_guard = disable_preempt();
 
-        let mut cursor = page_table
-            .cursor_mut(&preempt_guard, &(0..SECOND_MAP_ADDR + PAGE_SIZE))
-            .unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &(0..SECOND_MAP_ADDR + PAGE_SIZE));
 
         assert_eq!(cursor.virt_addr(), 0);
 
@@ -509,14 +498,14 @@ mod unmap {
         let page_property = PageProperty::new_user(PageFlags::RW, CachePolicy::Writeback);
 
         {
-            let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range).unwrap();
+            let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range);
             unsafe {
                 cursor.map((phys_addr, 1, page_property)).unwrap();
             }
         }
 
         // Unmaps the range and checks the result.
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range);
         let Some(PageTableFrag::Mapped { va, item }) =
             (unsafe { cursor.take_next(virt_range.len()) })
         else {
@@ -538,7 +527,7 @@ mod unmap {
         let page_property = PageProperty::new_user(PageFlags::RW, CachePolicy::Writeback);
 
         {
-            let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range).unwrap();
+            let mut cursor = page_table.cursor_mut(&preempt_guard, &virt_range);
             unsafe {
                 cursor.map((PAGE_SIZE, 1, page_property)).unwrap();
             }
@@ -546,7 +535,7 @@ mod unmap {
 
         let large_range = 0..PAGE_SIZE * 512 * 512;
 
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &large_range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &large_range);
         let Some(PageTableFrag::StrayPageTable {
             pt: _,
             va,
@@ -579,7 +568,6 @@ mod mapping {
         let frame = FrameAllocOptions::new().alloc_frame().unwrap();
         unsafe {
             pt.cursor_mut(&preempt_guard, &virt_range)
-                .unwrap()
                 .map(VmItem::Frame(frame.into(), page_property))
                 .unwrap()
         }
@@ -587,7 +575,6 @@ mod mapping {
         let frame2 = FrameAllocOptions::new().alloc_frame().unwrap();
         let Err(frag) = (unsafe {
             pt.cursor_mut(&preempt_guard, &virt_range)
-                .unwrap()
                 .map(VmItem::Frame(frame2.into(), page_property))
         }) else {
             panic!("Expected to get error on remapping, got `Ok`");
@@ -629,7 +616,7 @@ mod mapping {
         let unmap_len = PAGE_SIZE;
 
         {
-            let mut cursor = pt.cursor_mut(&preempt_guard, &unmap_va_range).unwrap();
+            let mut cursor = pt.cursor_mut(&preempt_guard, &unmap_va_range);
             assert_eq!(cursor.virt_addr(), unmap_va_range.start);
 
             // Unmaps the single page.
@@ -693,7 +680,6 @@ mod mapping {
 
         for ((va, item), i) in pt
             .cursor(&preempt_guard, &from)
-            .unwrap()
             .zip(0..ppn_granularity_split + 2)
         {
             let Some((pa, level, prop)) = item else {
@@ -738,7 +724,7 @@ mod mapping {
         }
 
         // Checks pages within the protection range.
-        for (va, item) in pt.cursor(&preempt_guard, &protect_va_range).unwrap() {
+        for (va, item) in pt.cursor(&preempt_guard, &protect_va_range) {
             let Some((pa, level, prop)) = item else {
                 panic!("Expected mapped untracked physical address, got `None`");
             };
@@ -824,7 +810,7 @@ mod protection_and_query {
         let preempt_guard = disable_preempt();
 
         // Attempts to protect an empty range.
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &range);
         let result = unsafe {
             cursor.protect_next(
                 range.len(),
@@ -850,13 +836,12 @@ mod protection_and_query {
         unsafe {
             page_table
                 .cursor_mut(&preempt_guard, &sub_range)
-                .unwrap()
                 .map((frame_range.start, 1, prop))
                 .unwrap();
         }
 
         // Attempts to protect the larger range. `protect_next` should traverse.
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &range);
         let result = unsafe {
             cursor.protect_next(
                 range.len(),

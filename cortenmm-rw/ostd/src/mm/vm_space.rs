@@ -91,8 +91,8 @@ impl VmSpace {
         &'a self,
         guard: &'a G,
         va: &Range<Vaddr>,
-    ) -> Result<Cursor<'a>> {
-        Ok(self.pt.cursor(guard, va).map(Cursor)?)
+    ) -> Cursor<'a> {
+        Cursor(self.pt.cursor(guard, va))
     }
 
     /// Gets an mutable cursor in the virtual address range.
@@ -109,11 +109,11 @@ impl VmSpace {
         &'a self,
         guard: &'a G,
         va: &Range<Vaddr>,
-    ) -> Result<CursorMut<'a>> {
-        Ok(self.pt.cursor_mut(guard, va).map(|pt_cursor| CursorMut {
-            pt_cursor,
+    ) -> CursorMut<'a> {
+        CursorMut {
+            pt_cursor: self.pt.cursor_mut(guard, va),
             flusher: TlbFlusher::new(&self.cpus, disable_preempt()),
-        })?)
+        }
     }
 
     /// Activates the page table on the current CPU.

@@ -373,7 +373,7 @@ impl PageTable<KernelPtConfig> {
         mut op: impl FnMut(&mut PageProperty),
     ) -> Result<(), PageTableError> {
         let preempt_guard = disable_preempt();
-        let mut cursor = CursorMut::new(self, &preempt_guard, vaddr)?;
+        let mut cursor = CursorMut::new(self, &preempt_guard, vaddr);
         fn status_op(_: &mut Status) {}
         // SAFETY: The safety is upheld by the caller.
         while let Some(range) =
@@ -428,7 +428,7 @@ impl<C: PageTableConfig> PageTable<C> {
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<CursorMut<'rcu, C>, PageTableError> {
+    ) -> CursorMut<'rcu, C> {
         CursorMut::new(self, guard.as_atomic_mode_guard(), va)
     }
 
@@ -441,7 +441,7 @@ impl<C: PageTableConfig> PageTable<C> {
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<Cursor<'rcu, C>, PageTableError> {
+    ) -> Cursor<'rcu, C> {
         Cursor::new(self, guard.as_atomic_mode_guard(), va)
     }
 

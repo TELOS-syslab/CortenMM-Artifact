@@ -399,7 +399,7 @@ impl InitStackReader<'_> {
         let mut cursor = vm_space.cursor(
             &preempt_guard,
             &(page_base_addr..page_base_addr + PAGE_SIZE),
-        )?;
+        );
         let (_, Some(VmItem::Frame(frame, _))) = cursor.query()? else {
             return_errno_with_message!(Errno::EACCES, "Page not accessible");
         };
@@ -427,7 +427,7 @@ impl InitStackReader<'_> {
         let mut cursor = vm_space.cursor(
             &preempt_guard,
             &(page_base_addr..page_base_addr + PAGE_SIZE),
-        )?;
+        );
         let (_, Some(VmItem::Frame(frame, _))) = cursor.query()? else {
             return_errno_with_message!(Errno::EACCES, "Page not accessible");
         };
@@ -471,7 +471,7 @@ impl InitStackReader<'_> {
         let mut cursor = vm_space.cursor(
             &preempt_guard,
             &(page_base_addr..page_base_addr + PAGE_SIZE),
-        )?;
+        );
         let (_, Some(VmItem::Frame(frame, _))) = cursor.query()? else {
             return_errno_with_message!(Errno::EACCES, "Page not accessible");
         };

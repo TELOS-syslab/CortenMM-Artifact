@@ -64,7 +64,7 @@ impl KVirtArea {
         let vaddr = start..start + PAGE_SIZE;
         let page_table = KERNEL_PAGE_TABLE.get().unwrap();
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
+        let mut cursor = page_table.cursor(&preempt_guard, &vaddr);
         cursor.query().unwrap().1
     }
 
@@ -93,9 +93,7 @@ impl KVirtArea {
 
         let page_table = KERNEL_PAGE_TABLE.get().unwrap();
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table
-            .cursor_mut(&preempt_guard, &cursor_range)
-            .unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &cursor_range);
 
         for frame in frames.into_iter() {
             // SAFETY: The constructor of the `KVirtArea` has already ensured
@@ -145,7 +143,7 @@ impl KVirtArea {
 
             let page_table = KERNEL_PAGE_TABLE.get().unwrap();
             let preempt_guard = disable_preempt();
-            let mut cursor = page_table.cursor_mut(&preempt_guard, &va_range).unwrap();
+            let mut cursor = page_table.cursor_mut(&preempt_guard, &va_range);
 
             for (pa, level) in largest_pages::<KernelPtConfig>(va_range.start, pa_range.start, len)
             {
@@ -164,7 +162,7 @@ impl Drop for KVirtArea {
         let page_table = KERNEL_PAGE_TABLE.get().unwrap();
         let range = self.start()..self.end();
         let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &range).unwrap();
+        let mut cursor = page_table.cursor_mut(&preempt_guard, &range);
         loop {
             // SAFETY: The range is under `KVirtArea` so it is safe to unmap.
             let Some(frag) = (unsafe { cursor.take_next(self.end() - cursor.virt_addr()) }) else {

@@ -193,7 +193,7 @@ pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::GLOBAL,
         };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+        let mut cursor = kpt.cursor_mut(&preempt_guard, &from);
         for (pa, level) in largest_pages::<KernelPtConfig>(from.start, 0, max_paddr) {
             // SAFETY: we are doing the linear mapping for the kernel.
             unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
@@ -211,7 +211,7 @@ pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::GLOBAL,
         };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+        let mut cursor = kpt.cursor_mut(&preempt_guard, &from);
         // We use untracked mapping so that we can benefit from huge pages.
         // We won't unmap them anyway, so there's no leaking problem yet.
         // TODO: support tracked huge page mapping.
@@ -243,7 +243,7 @@ pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::GLOBAL,
         };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+        let mut cursor = kpt.cursor_mut(&preempt_guard, &from);
         for (pa, level) in largest_pages::<KernelPtConfig>(from.start, region.base(), from.len()) {
             // SAFETY: we are doing the kernel code mapping.
             unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }

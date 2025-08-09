@@ -431,7 +431,7 @@ fn map_segment_vmo(
         let preempt_guard = disable_preempt();
         let mut cursor = root_vmar
             .vm_space()
-            .cursor_mut(&preempt_guard, &(map_addr..map_addr + segment_size))?;
+            .cursor_mut(&preempt_guard, &(map_addr..map_addr + segment_size));
         let page_flags = PageFlags::from(perms) | PageFlags::ACCESSED;
 
         if let Some(head_frame) = head_frame {

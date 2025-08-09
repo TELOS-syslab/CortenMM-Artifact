@@ -40,8 +40,10 @@ impl CpuSet {
     }
 
     /// Creates a new `CpuSet` with no CPUs in the system.
-    pub fn new_empty() -> Self {
-        Self::with_capacity_val(num_cpus(), 0)
+    pub const fn new_empty() -> Self {
+        Self {
+            bits: [0; NR_PARTS_NO_ALLOC],
+        }
     }
 
     /// Adds a CPU to the set.
