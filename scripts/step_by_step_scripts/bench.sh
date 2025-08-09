@@ -8,7 +8,12 @@ set -ex
 
 export QMP_PORT=13336
 
-NR_CPUS=${NR_CPUS:-$(nproc --all)}
+NR_CPUS=${NR_CPUS:-$(nproc)}
+# Default 2GB per core, minimum 64GB
+MEM_SIZE=$((NR_CPUS * 2))
+if [ "$MEM_SIZE" -lt 64 ]; then
+    MEM_SIZE=64
+fi
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 PIN_CPU_SCRIPT="$SCRIPT_DIR/pin_cpu.py"
@@ -23,10 +28,10 @@ COMMAND_IN_VM=$3
 BENCH_OUTPUT_FILE="$TEST_RESULTS_DIR/$BENCH_OUTPUT_FILE_NAME"
 
 if [ "$BENCH_TARGET" == "linux" ]; then
-    START_VM_CMD="$SCRIPT_DIR/start_linux.sh $NR_CPUS"
+    START_VM_CMD="$SCRIPT_DIR/start_linux.sh $NR_CPUS $MEM_SIZE"
     EXIT_COMMAND="; poweroff -f"
 elif [ "$BENCH_TARGET" == "corten-rw" ] || [ "$BENCH_TARGET" == "corten-adv" ]; then
-    START_VM_CMD="make run SMP=$NR_CPUS MEM=240G RELEASE_LTO=1 $CORTEN_RUN_ARGS"
+    START_VM_CMD="make run SMP=$NR_CPUS MEM=${MEM_SIZE}G RELEASE_LTO=1 $CORTEN_RUN_ARGS"
     EXIT_COMMAND="; exit"
     if [ "$BENCH_TARGET" == "corten-rw" ]; then
         pushd "$SCRIPT_DIR/../../cortenmm-rw"

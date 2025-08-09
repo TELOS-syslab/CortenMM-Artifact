@@ -1,8 +1,11 @@
 set -ex
 
-# args: start_linux.sh [core_count]
+# args: start_linux.sh [core_count] [mem_size]
+# environment variables:
+#   QMP_PORT: port for QEMU Machine Protocol (default: 9889)
 
 CORE_COUNT=${1:-128}
+MEM_SIZE=${2:-256}
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 IMG_SRC_DIR="$SCRIPT_DIR/../../cortenmm-adv/test"
@@ -18,7 +21,7 @@ LINUX_KERNEL="/root/linux-6.13.8/bzImage"
 /usr/local/qemu/bin/qemu-system-x86_64 \
     --no-reboot \
     -smp $CORE_COUNT \
-    -m 256G \
+    -m ${MEM_SIZE}G \
     -machine q35,kernel-irqchip=split \
     -cpu host,migratable=off,-pcid,+x2apic \
     --enable-kvm \
