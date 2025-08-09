@@ -17,7 +17,7 @@ use super::elf_file::ElfHeaders;
 use crate::{
     fs::{
         fs_resolver::{FsPath, FsResolver, AT_FDCWD},
-        path::Dentry,
+        path::Path,
     },
     prelude::*,
     process::{
@@ -40,7 +40,7 @@ use crate::{
 /// initialize process init stack.
 pub fn load_elf_to_vm(
     process_vm: &ProcessVm,
-    elf_file: Dentry,
+    elf_file: Path,
     fs_resolver: &FsResolver,
     elf_headers: ElfHeaders,
     argv: Vec<CString>,
@@ -91,13 +91,20 @@ pub fn load_elf_to_vm(
 
 fn lookup_and_parse_ldso(
     headers: &ElfHeaders,
-    elf_file: &Dentry,
+    elf_file: &Path,
     fs_resolver: &FsResolver,
-) -> Result<Option<(Dentry, ElfHeaders)>> {
+) -> Result<Option<(Path, ElfHeaders)>> {
     let ldso_file = {
         let Some(ldso_path) = headers.read_ldso_path(elf_file)? else {
             return Ok(None);
         };
+        // Our FS requires the path to be valid UTF-8. This may be too restrictive.
+        let ldso_path = ldso_path.into_string().map_err(|_| {
+            Error::with_message(
+                Errno::ENOEXEC,
+                "The interpreter path specified in ELF is not a valid UTF-8 string",
+            )
+        })?;
         let fs_path = FsPath::new(AT_FDCWD, ldso_path.as_str())?;
         fs_resolver.lookup(&fs_path)?
     };
@@ -112,7 +119,7 @@ fn lookup_and_parse_ldso(
 
 fn load_ldso(
     root_vmar: &Vmar<Full>,
-    ldso_file: &Dentry,
+    ldso_file: &Path,
     ldso_elf: &ElfHeaders,
 ) -> Result<LdsoLoadInfo> {
     let range = map_segment_vmos(ldso_elf, root_vmar, ldso_file)?;
@@ -133,9 +140,9 @@ fn load_ldso(
 /// Returns the mapped range, the entry point and the auxiliary vector.
 fn init_and_map_vmos(
     process_vm: &ProcessVm,
-    ldso: Option<(Dentry, ElfHeaders)>,
+    ldso: Option<(Path, ElfHeaders)>,
     parsed_elf: &ElfHeaders,
-    elf_file: &Dentry,
+    elf_file: &Path,
 ) -> Result<(RelocatedRange, Vaddr, AuxVec)> {
     let process_vmar = process_vm.lock_root_vmar();
     let root_vmar = process_vmar.unwrap();
@@ -199,7 +206,7 @@ pub struct ElfLoadInfo {
 pub fn map_segment_vmos(
     elf: &ElfHeaders,
     root_vmar: &Vmar<Full>,
-    elf_file: &Dentry,
+    elf_file: &Path,
 ) -> Result<RelocatedRange> {
     let elf_va_range = get_range_for_all_segments(elf)?;
 
@@ -325,7 +332,7 @@ fn get_range_for_all_segments(elf: &ElfHeaders) -> Result<Range<Vaddr>> {
 /// If needed, create additional anonymous mapping to represents .bss segment.
 fn map_segment_vmo(
     program_header: &ProgramHeader64,
-    elf_file: &Dentry,
+    elf_file: &Path,
     root_vmar: &Vmar<Full>,
     map_at: Vaddr,
 ) -> Result<()> {

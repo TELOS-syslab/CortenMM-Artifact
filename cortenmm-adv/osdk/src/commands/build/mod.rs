@@ -224,7 +224,7 @@ fn build_kernel_elf(
         // It makes running on Intel CPUs after Ivy Bridge (2012) faster, but much slower
         // on older CPUs.
         // If we are on late AMD machines, use `+fsrm` here. Otherwise we should `+ermsb`.
-        rustflags.push("-C target-feature=+fsrm");
+        rustflags.push("-C target-feature=+fsrm,+ermsb");
     }
 
     let mut command = cargo();

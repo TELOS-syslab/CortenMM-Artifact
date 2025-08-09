@@ -7,7 +7,7 @@ use xmas_elf::{
 };
 
 use crate::{
-    fs::{path::Dentry, utils::PATH_MAX},
+    fs::{path::Path, utils::PATH_MAX},
     prelude::*,
 };
 pub struct ElfHeaders {
@@ -93,7 +93,7 @@ impl ElfHeaders {
     }
 
     /// Reads the LDSO path from the ELF file.
-    pub fn read_ldso_path(&self, elf_file: &Dentry) -> Result<Option<String>> {
+    pub fn read_ldso_path(&self, elf_file: &Path) -> Result<Option<CString>> {
         for program_header in &self.program_headers {
             let type_ = program_header.get_type().map_err(|_| {
                 Error::with_message(Errno::ENOEXEC, "parse program header type fails")
@@ -113,22 +113,14 @@ impl ElfHeaders {
                 let mut buffer = vec![0; file_size];
                 inode.read_bytes_at(file_offset, &mut buffer)?;
 
-                let ldso = CString::from_vec_with_nul(buffer)
-                    .map_err(|_| {
-                        Error::with_message(
-                            Errno::ENOEXEC,
-                            "The interpreter path specified in ELF is not a valid C string",
-                        )
-                    })?
-                    .into_string()
-                    .map_err(|_| {
-                        Error::with_message(
-                            Errno::ENOEXEC,
-                            "The interpreter path specified in ELF is not a valid C string",
-                        )
-                    })?;
+                let ldso_path = CString::from_vec_with_nul(buffer).map_err(|_| {
+                    Error::with_message(
+                        Errno::ENOEXEC,
+                        "The interpreter path specified in ELF is not a valid C string",
+                    )
+                })?;
 
-                return Ok(Some(ldso));
+                return Ok(Some(ldso_path));
             }
         }
         Ok(None)
