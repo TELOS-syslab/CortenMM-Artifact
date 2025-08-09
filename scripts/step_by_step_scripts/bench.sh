@@ -6,6 +6,10 @@
 
 set -ex
 
+# Record script start time in seconds since epoch
+TIME_START_CMD="SCRIPT_START_SECONDS=\$(date +%s)"
+TIME_END_CMD="SCRIPT_END_SECONDS=\$(date +%s); echo \"Time: \$((SCRIPT_END_SECONDS - SCRIPT_START_SECONDS)) seconds\""
+
 export QMP_PORT=13336
 
 NR_CPUS=${NR_CPUS:-$(nproc)}
@@ -47,8 +51,10 @@ COMMAND_IN_VM+=$EXIT_COMMAND
 
 tmux new-session -d -s ${TMUX_SESSION_NAME}
 
-ASTER_SESSION_KEYS=$START_VM_CMD
+ASTER_SESSION_KEYS=$TIME_START_CMD
+ASTER_SESSION_KEYS+="; $START_VM_CMD"
 ASTER_SESSION_KEYS+=" 2>&1 | tee -a ${BENCH_OUTPUT_FILE}"
+ASTER_SESSION_KEYS+="; $TIME_END_CMD"
 # Exit session when the command finishes
 ASTER_SESSION_KEYS+="; exit"
 
