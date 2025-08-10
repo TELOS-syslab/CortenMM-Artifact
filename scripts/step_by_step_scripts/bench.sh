@@ -6,6 +6,9 @@
 
 set -ex
 
+# Record script start time in seconds since epoch
+SCRIPT_START_SECONDS="$(date +%s)"
+
 export QMP_PORT=13336
 
 NR_CPUS=${NR_CPUS:-$(nproc)}
@@ -47,14 +50,14 @@ COMMAND_IN_VM+=$EXIT_COMMAND
 
 tmux new-session -d -s ${TMUX_SESSION_NAME}
 
-ASTER_SESSION_KEYS=$START_VM_CMD
-ASTER_SESSION_KEYS+=" 2>&1 | tee -a ${BENCH_OUTPUT_FILE}"
+ASTER_SESSION_KEYS="$START_VM_CMD 2>&1 | tee -a ${BENCH_OUTPUT_FILE}"
 # Exit session when the command finishes
 ASTER_SESSION_KEYS+="; exit"
 
 echo "Starting VM in tmux session ${TMUX_SESSION_NAME}:0 with command:"
 echo "# $ASTER_SESSION_KEYS"
-tmux send-keys -t ${TMUX_SESSION_NAME}:0 "$ASTER_SESSION_KEYS" Enter
+tmux send-keys -t ${TMUX_SESSION_NAME}:0 -l "$ASTER_SESSION_KEYS"
+tmux send-keys -t ${TMUX_SESSION_NAME}:0 Enter
 
 echo "Wait for \"~ \#\" shell prompt to appear in $BENCH_OUTPUT_FILE"
 while [ ! -f "$BENCH_OUTPUT_FILE" ] || ! tail -n 1 "$BENCH_OUTPUT_FILE" | grep -q "~ #"; do
@@ -72,5 +75,9 @@ tmux select-window -t ${TMUX_SESSION_NAME}:0
 tmux send-keys -t ${TMUX_SESSION_NAME}:0 "${COMMAND_IN_VM}" Enter
 
 tmux attach -t ${TMUX_SESSION_NAME}:0
+
+SCRIPT_END_SECONDS="$(date +%s)"
+SCRIPT_DURATION_SECONDS=$((SCRIPT_END_SECONDS - SCRIPT_START_SECONDS))
+echo "Eval used $SCRIPT_DURATION_SECONDS seconds" >> "$BENCH_OUTPUT_FILE"
 
 unset QMP_PORT
