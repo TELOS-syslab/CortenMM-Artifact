@@ -18,10 +18,10 @@ use git2::{
     build::{RepoBuilder, CheckoutBuilder},
 };
 use walkdir::WalkDir;
-#[cfg(target_os = "windows")]
 use owo_colors::{OwoColorize, Stream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
+use rayon::prelude::*;
 
 static VERUS_REPO: &str = "https://github.com/asterinas/verus.git";
 
@@ -301,7 +301,7 @@ enum Commands {
     Doc(DocArgs),
     Bootstrap(BootstrapArgs),
     Compile(CompileArgs),
-    Fmt,
+    Fmt(FmtArgs),
     Update(UpdateArgs),
 }
 
@@ -369,6 +369,11 @@ struct VerifyArgs {
     help = "Count the number of lines of code",
     default_value = "false", action = ArgAction::SetTrue)]
     count_line: bool,
+
+    #[arg(short = 'p', long = "parallel",
+    help = "Run verification in parallel",
+    default_value = "false", action = ArgAction::SetTrue)]
+    parallel: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -414,6 +419,14 @@ struct CompileArgs {
     pass_through: Vec<String>,
 }
 
+#[derive(Parser, Debug)]
+struct FmtArgs {
+    #[arg(short = 't', long = "targets", value_parser = target_parser,
+        help = "The targets to format", num_args = 0..,
+        action = ArgAction::Append)]
+    targets: Vec<String>,
+}
+
 fn target_parser(s: &str) -> Result<String, String> {
     let all_targets = get_all_targets();
     let s = s
@@ -426,7 +439,7 @@ fn target_parser(s: &str) -> Result<String, String> {
     }
 }
 
-type DynError = Box<dyn std::error::Error>;
+type DynError = Box<dyn std::error::Error + Send + Sync>;
 
 fn crate_type(target: &str) -> (PathBuf, &str) {
     let target_root = Path::new(&target).join("src");
@@ -491,8 +504,6 @@ lazy_static! {
     static ref SYSTEM_CRATES: HashSet<&'static str> = {
         let mut set = HashSet::new();
         set.insert("vstd");
-        set.insert("builtin");
-        set.insert("builtin_macros");
         set
     };
 }
@@ -549,56 +560,90 @@ fn get_dependency(target: &String) -> Vec<(String, PathBuf)> {
 }
 
 fn exec_verify(args: &VerifyArgs) -> Result<(), DynError> {
-    let targets = &args.targets;
+    if args.parallel && args.count_line {
+        return Err("`--parallel` and `--count-line` cannot be used together".into());
+    }
+
     let verus = get_verus();
     let z3 = get_z3();
-    let mut imports = HashSet::new();
-    imports.extend(args.imports.iter().map(|s| s.as_str()));
+    let imports: HashSet<_> = args.imports.iter().map(|s| s.as_str()).collect();
 
-    for target in targets {
-        let (target_file, crate_type) = crate_type(target);
-        let cmd = &mut Command::new(&verus);
-        cmd.env("VERUS_PATH", &verus).env("VERUS_Z3_PATH", &z3);
+    let results: Result<Vec<_>, DynError> = if args.parallel {
+        eprintln!(
+            "{}",
+            "Warning: Running verification in parallel mode, the output may be out of order."
+                .if_supports_color(Stream::Stderr, |text| text.yellow())
+        );
+        args.targets
+            .par_iter()
+            .map(|target| verify_single_target(target, &verus, &z3, &imports, args))
+            .collect()
+    } else {
+        args.targets
+            .iter()
+            .map(|target| verify_single_target(target, &verus, &z3, &imports, args))
+            .collect()
+    };
 
-        let deps = get_dependency(target);
-        let mut target_import = HashSet::new();
-        target_import.extend(imports.clone());
-        target_import.extend(deps.iter().map(|(name, _)| name.as_str()));
-        push_imports(cmd, target_import.iter().cloned().collect());
+    results?;
+    Ok(())
+}
 
-        if args.log {
-            cmd.arg("--log-all");
-        }
-        if args.emit_dep_info || args.count_line {
-            cmd.arg("--emit=dep-info");
-        }
-        cmd.arg(target_file)
-            .arg(format!("--crate-type={}", crate_type))
-            .arg("--expand-errors")
-            .arg(format!("--multiple-errors={}", args.max_errors))
-            .args(&args.pass_through)
-            .arg("--")
-            .arg("-C")
-            .arg(format!("metadata={}", target))
-            .stdout(Stdio::inherit());
+fn verify_single_target(
+    target: &String,
+    verus: &PathBuf,
+    z3: &PathBuf,
+    imports: &HashSet<&str>,
+    args: &VerifyArgs,
+) -> Result<(), DynError> {
+    let (target_file, crate_type) = crate_type(target);
+    let mut cmd = Command::new(verus);
+    cmd.env("VERUS_PATH", verus).env("VERUS_Z3_PATH", z3);
 
-        println!("Verifying target: {}\n{:?}", target, cmd);
-        cmd.status()?;
+    let deps = get_dependency(target);
+    let mut target_import: HashSet<_> = imports.clone();
+    target_import.extend(deps.iter().map(|(name, _)| name.as_str()));
+    push_imports(&mut cmd, target_import.iter().cloned().collect());
 
-        if args.count_line {
-            let dependency_file = env::current_dir()?.join("lib.d");
-            let verus_root = get_verus_root();
-            let line_count_dir = verus_root.join("tools/line_count");
-            env::set_current_dir(&line_count_dir)?;
-            let mut cargo_cmd = Command::new("cargo");
-            cargo_cmd
-                .arg("run")
-                .arg("--release")
-                .arg(&dependency_file)
-                .arg("-p");
-            cargo_cmd.status()?;
-            fs::remove_file(&dependency_file)?;
-        }
+    if args.log {
+        cmd.arg("--log-all");
+    }
+    if args.emit_dep_info || args.count_line {
+        cmd.arg("--emit=dep-info");
+    }
+
+    cmd.arg(target_file)
+        .arg(format!("--crate-type={}", crate_type))
+        .arg("--expand-errors")
+        .arg(format!("--multiple-errors={}", args.max_errors))
+        .args(&args.pass_through)
+        .arg("--")
+        .arg("-C")
+        .arg(format!("metadata={}", target))
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    println!("Verifying target: {}", target);
+    let status = cmd.status()?;
+    if !status.success() {
+        return Err(format!("Target {} failed with status {}", target, status).into());
+    }
+
+    if args.count_line {
+        let verus_root = get_verus_root();
+        let line_count_dir = verus_root.join("tools/line_count");
+        let dependency_file = env::current_dir()?.join("lib.d");
+        env::set_current_dir(&line_count_dir)?;
+        let mut cargo_cmd = Command::new("cargo");
+        cargo_cmd
+            .arg("run")
+            .arg("--release")
+            .arg(&dependency_file)
+            .arg("-p");
+
+        println!("Counting lines for target: {}", target);
+        cargo_cmd.status()?;
+        fs::remove_file(&dependency_file)?;
     }
 
     Ok(())
@@ -773,18 +818,7 @@ fn exec_doc(args: &DocArgs) -> Result<(), DynError> {
             ))
             .arg("--extern")
             .arg(format!(
-                "builtin={}/target-verus/debug/libbuiltin.rlib",
-                verus_root.display()
-            ))
-            .arg("--extern")
-            .arg(format!(
-                "builtin_macros={}/target-verus/debug/libbuiltin_macros.{}",
-                verus_root.display(),
-                dll_ext
-            ))
-            .arg("--extern")
-            .arg(format!(
-                "state_machines_macros={}/target-verus/debug/libstate_machines_macros.{}",
+                "verus_state_machines_macros={}/target-verus/debug/lib_verus_state_machines_macros.{}",
                 verus_root.display(),
                 dll_ext
             ))
@@ -907,7 +941,8 @@ fn compile_verus() -> Result<(), DynError> {
         let cmd = &mut get_powershell_command()?;
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("/c")
-            .arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
+            //.arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
+            .arg("& '..\\tools\\activate.ps1' ; vargo build --release");
         println!("{:?}", cmd);
         cmd.status()?;
     }
@@ -916,7 +951,9 @@ fn compile_verus() -> Result<(), DynError> {
         let cmd = &mut Command::new("bash");
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("-c")
-            .arg("source ../tools/activate && vargo build --release --features singular");
+            // We do not use the integer_ring feature yet
+            //.arg("source ../tools/activate && vargo build --release --features singular");
+            .arg("source ../tools/activate && vargo build --release");
         println!("{:?}", cmd);
         cmd.status()?;
     }
@@ -1046,16 +1083,18 @@ fn exec_update(args: &UpdateArgs) -> Result<(), DynError> {
     Ok(())
 }
 
-fn exec_fmt() -> Result<(), DynError> {
+fn exec_fmt(args: &FmtArgs) -> Result<(), DynError> {
     // do `cargo fmt` befor verusfmt
-    let status = Command::new("cargo")
-        .arg("fmt")
-        .status()
-        .expect("Failed to run cargo fmt");
-    if !status.success() {
-        eprintln!("Failed to run cargo fmt");
-        std::process::exit(1);
+    let mut cmd = Command::new("cargo");
+    cmd.arg("fmt");
+
+    if !args.targets.is_empty() {
+        for target in &args.targets {
+            cmd.arg("--package").arg(target);
+        }
     }
+
+    cmd.status().expect("Failed to run cargo fmt");
 
     // format the xtask build script
     let xtask = Path::new("xtask").join("src").join("main.rs");
@@ -1086,29 +1125,43 @@ fn exec_fmt() -> Result<(), DynError> {
         .exec()
         .expect("Failed to get cargo metadata");
 
-    for package in metadata.packages {
+    // Filter packages based on the provided targets
+    let fmt_packages = if args.targets.is_empty() {
+        metadata.packages
+    } else {
+        metadata
+            .packages
+            .into_iter()
+            .filter(|p| args.targets.contains(&p.name))
+            .collect::<Vec<_>>()
+    };
+
+    for package in fmt_packages {
         for target in package.targets {
             let path = target.src_path;
             let src_dir = path.parent().unwrap();
             // Just search for all `.rs` files in the src directory instead of chasing them
-            let files = WalkDir::new(src_dir).into_iter().filter_map(|entry| {
-                let path = entry.ok()?.path().to_path_buf();
-                if path.is_file() && path.extension().map_or(false, |ext| ext == "rs") {
-                    Some(path)
-                } else {
-                    None
-                }
-            });
-            for file in files {
-                println!("Formatting file: {}", &file.display());
-                let status = Command::new(&verusfmt)
-                    .arg(&file)
-                    .status()
-                    .expect("Failed to run verusfmt");
-                if !status.success() {
-                    eprintln!("Failed to format file: {}, skipping", &file.display());
-                }
-            }
+            WalkDir::new(src_dir)
+                .into_iter()
+                .filter_map(|entry| {
+                    let path = entry.ok()?.path().to_path_buf();
+                    if path.is_file() && path.extension().map_or(false, |ext| ext == "rs") {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+                .par_bridge()
+                .for_each(|file| {
+                    println!("Formatting file: {}", &file.display());
+                    let status = Command::new(&verusfmt)
+                        .arg(&file)
+                        .status()
+                        .expect("Failed to run verusfmt");
+                    if !status.success() {
+                        eprintln!("Failed to format file: {}, skipping", &file.display());
+                    }
+                });
         }
     }
     Ok(())
@@ -1124,7 +1177,7 @@ fn main() {
         Commands::Doc(args) => exec_doc(args),
         Commands::Bootstrap(args) => exec_bootstrap(args),
         Commands::Compile(args) => exec_compile(args),
-        Commands::Fmt => exec_fmt(),
+        Commands::Fmt(args) => exec_fmt(args),
         Commands::Update(args) => exec_update(args),
     } {
         eprintln!("Error: {}", e);

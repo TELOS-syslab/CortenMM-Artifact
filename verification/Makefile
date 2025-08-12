@@ -1,10 +1,19 @@
 .DEFAULT_GOAL := all
-.PHONY: lock-protocol
+.PHONY: lock-protocol all compile verify verify-parallel clean fmt
 
-# List of verification targets
-VERIFICATION_TARGETS := lock-protocol
+VERIFICATION_TARGETS := \
+	fvt1-mem-region-init \
+	fvt3-page-acquisition-safety \
+	fvt4-into-from-raw \
+	fvt6-vmreader-and-vmwriter \
+	fvt10-pt-cursor-navigation \
+	fvt11-pt-cursor-guards \
+	lock-protocol
 
-# Compile-only targets
+# Disabled:
+# fvt5-lifecycle-safety
+# fvt13-vmspace-unmap-safety 
+
 COMPILE_TARGETS := vstd_extra aster_common
 
 # Pattern rule for individual FVT targets
@@ -20,14 +29,13 @@ fmt:
 all: compile verify
 
 compile:
-	@for target in $(COMPILE_TARGETS); do \
-		cargo xtask compile --targets $$target; \
-	done
+	cargo xtask compile --targets $(COMPILE_TARGETS)
 
 verify:
-	@for target in $(VERIFICATION_TARGETS); do \
-		cargo xtask verify --targets $$target; \
-	done
+	cargo xtask verify --targets $(VERIFICATION_TARGETS) $(if $(VOSTD_VERIFY_PARALLEL),--parallel)
+
+verify-parallel:
+	VOSTD_VERIFY_PARALLEL=1 $(MAKE) verify
 
 clean:
 	cargo clean
