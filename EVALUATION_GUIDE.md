@@ -72,7 +72,7 @@ cd verification
 cargo xtask bootstrap
 ```
 
-Secondly, the following commands will compile and verify the dependent packages (`aster_common` and `vstd_extra`). It should take around 10 seconds. 
+Secondly, the following commands will compile and verify the dependent package (`vstd_extra`). It should take around 10 seconds. 
 
 ```bash
 make compile

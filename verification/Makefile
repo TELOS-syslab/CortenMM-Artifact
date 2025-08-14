@@ -2,19 +2,9 @@
 .PHONY: lock-protocol all compile verify verify-parallel clean fmt
 
 VERIFICATION_TARGETS := \
-	fvt1-mem-region-init \
-	fvt3-page-acquisition-safety \
-	fvt4-into-from-raw \
-	fvt6-vmreader-and-vmwriter \
-	fvt10-pt-cursor-navigation \
-	fvt11-pt-cursor-guards \
 	lock-protocol
 
-# Disabled:
-# fvt5-lifecycle-safety
-# fvt13-vmspace-unmap-safety 
-
-COMPILE_TARGETS := vstd_extra aster_common
+COMPILE_TARGETS := vstd_extra
 
 # Pattern rule for individual FVT targets
 fvt%:

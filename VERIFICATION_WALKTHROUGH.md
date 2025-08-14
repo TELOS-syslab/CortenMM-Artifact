@@ -70,7 +70,6 @@ To run the verification, please refer to `README.md`. Basically, you can use the
 ```bash
 cargo xtask bootstrap
 cargo xtask compile --targets vstd_extra
-cargo xtask compile --targets aster_common
 cargo xtask verify --targets lock-protocol
 ```
 

@@ -312,7 +312,7 @@ struct BootstrapArgs {
     restart: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.88.0", action = ArgAction::Set)]
+        default_value = "sosp25-artifact", action = ArgAction::Set)]
     rust_version: String,
 }
 
@@ -323,7 +323,7 @@ struct UpdateArgs {
     no_verus: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.88.0", action = ArgAction::Set)]
+        default_value = "sosp25-artifact", action = ArgAction::Set)]
     rust_version: String,
 
     #[arg(long = "test", help = "Use the test branch of Verus",
@@ -512,7 +512,6 @@ lazy_static! {
     static ref WORKSPACE_CRATES: HashSet<&'static str> = {
         let mut set = HashSet::new();
         set.insert("vstd_extra");
-        set.insert("aster_common");
         set
     };
 }
