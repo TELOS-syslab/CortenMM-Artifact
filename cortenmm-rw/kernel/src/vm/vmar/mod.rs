@@ -19,9 +19,10 @@ use aster_rights::Rights;
 use ostd::{
     cpu::CpuId,
     mm::{
+        io_util::HasVmReaderWriter,
         tlb::TlbFlushOp,
         vm_space::{largest_pages, CursorMut, Status, VmItem, VmSpace},
-        CachePolicy, Frame, FrameAllocOptions, PageFlags, PageProperty, UFrame, UntypedMem,
+        CachePolicy, Frame, FrameAllocOptions, PageFlags, PageProperty, UFrame,
         MAX_USERSPACE_VADDR,
     },
     task::disable_preempt,

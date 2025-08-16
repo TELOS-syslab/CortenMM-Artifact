@@ -15,7 +15,7 @@ bitflags! {
         /// Performs `msync` asynchronously.
         const MS_ASYNC      = 0x01;
         /// Invalidates cache so that other processes mapping the same file
-        /// will immediately see the changes before this `msync` call.
+        /// will immediately see the changes after this `msync` call.
         ///
         /// Should be a no-op since we use the same page cache for all processes.
         const MS_INVALIDATE = 0x02;

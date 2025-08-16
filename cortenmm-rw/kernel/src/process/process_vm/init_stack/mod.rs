@@ -21,7 +21,7 @@ use core::{
 use align_ext::AlignExt;
 use aster_rights::Full;
 use ostd::{
-    mm::{vm_space::VmItem, UntypedMem, VmIo},
+    mm::{io_util::HasVmReaderWriter, vm_space::VmItem, VmIo},
     task::disable_preempt,
 };
 
