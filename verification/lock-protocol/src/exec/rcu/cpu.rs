@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use super::{common::*, types::*};
+use super::common::*;
 
 verus! {
 

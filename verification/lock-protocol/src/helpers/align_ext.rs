@@ -212,4 +212,53 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
     res_ as usize
 }
 
+pub proof fn lemma_align_down_properties(x: usize, align: usize)
+    by (nonlinear_arith)
+    requires
+        is_power_2(align as int),
+        align < usize::MAX as usize,
+    ensures
+        align_down(x, align) as int == x as int - (x as int % align as int) == (x / align) * align,
+        align_down(x, align) as nat == x as nat - (x as nat % align as nat) == (x / align) * align,
+{
+    assert(x as int % align as int <= x as int);
+}
+
+// FIXME: We can improve the proof of this function.
+pub proof fn lemma_align_down_monotone(x: usize, y: usize, align: usize)
+    requires
+        is_power_2(align as int),
+        align < u64::MAX as usize,
+        x <= y,
+    ensures
+        align_down(x, align) <= align_down(y, align),
+{
+    lemma_align_down_properties(x, align);
+    lemma_align_down_properties(y, align);
+    assert(x as int / align as int <= y as int / align as int) by (nonlinear_arith)
+        requires
+            x as int <= y as int,
+            align > 0,
+    ;
+    assert(x / align * align <= y / align * align) by (nonlinear_arith)
+        requires
+            x as int / align as int <= y as int / align as int,
+            align > 0,
+    ;
+}
+
+pub proof fn lemma_align_down_squeeze(x: usize, y: usize, z: usize, align: usize)
+    requires
+        is_power_2(align as int),
+        align < u64::MAX as usize,
+        x <= y <= z,
+        align_down(x, align) == align_down(z, align),
+    ensures
+        align_down(x, align) == align_down(y, align),
+{
+    lemma_align_down_monotone(x, y, align);
+    lemma_align_down_monotone(y, z, align);
+    assert(align_down(x, align) == align_down(z, align));
+}
+
 } // verus!

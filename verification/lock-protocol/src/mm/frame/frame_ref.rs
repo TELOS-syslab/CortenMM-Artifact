@@ -4,9 +4,13 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 
-use crate::mm::Paddr;
+use crate::mm::{
+    page_table::{cursor::MAX_NR_LEVELS, PageTableConfig, node::PageTableNode},
+    Paddr, PagingConsts,
+};
 
 use super::{allocator::AllocatorModel, meta::AnyFrameMeta, Frame};
+use crate::mm::page_table::PagingConstsTrait;
 
 verus! {
 
@@ -33,10 +37,10 @@ impl<'a, M: AnyFrameMeta> FrameRef<'a, M> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(raw as int),
-            alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(),
         ensures
             res.deref().start_paddr() == raw,
             res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+            alloc_model.invariants(),
     {
         Self {
             inner: ManuallyDrop::new(Frame::from_raw(raw, Tracked(alloc_model))),

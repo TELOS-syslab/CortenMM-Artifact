@@ -10,31 +10,27 @@ use entry::Entry;
 use vstd::cell::PCell;
 use vstd::prelude::*;
 
-#[allow(unused_imports)]
-use child::*;
 use vstd::simple_pptr::MemContents;
 use vstd::simple_pptr::PPtr;
 use vstd::simple_pptr::PointsTo;
-use crate::mm::frame;
-use crate::mm::meta::AnyFrameMeta;
-use crate::mm::nr_subpage_per_huge;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_size_spec;
-use crate::mm::Paddr;
-use crate::mm::PageTableEntryTrait;
-use crate::mm::PagingConstsTrait;
-use crate::mm::PagingConsts;
-
-use crate::mm::frame::{
-    Frame, FrameRef,
-    allocator::{AllocatorModel, pa_is_valid_kernel_address},
+use crate::{
+    mm::{
+        NR_ENTRIES,
+        frame::{
+            self,
+            allocator::{pa_is_valid_kernel_address, AllocatorModel},
+            meta::AnyFrameMeta,
+            Frame, FrameRef,
+        },
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size_spec,
+        page_table::PageTableEntryTrait,
+        Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
+    },
+    sync::spin,
+    x86_64::kspace::paddr_to_vaddr,
 };
-use crate::mm::PagingLevel;
-
-use crate::mm::Vaddr;
-use crate::sync::spin;
-// TODO: Use a generic style?
-use crate::x86_64::paddr_to_vaddr;
 
 use crate::exec::{
     self, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY, frame_addr_to_index,
@@ -42,10 +38,9 @@ use crate::exec::{
 };
 use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
 
-use crate::mm::NR_ENTRIES;
-
 use super::cursor::spec_helpers;
 use super::PageTableConfig;
+use std::ops::Deref;
 
 verus! {
 
@@ -90,6 +85,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         self.meta_spec(alloc_model).level
     }
 
+    #[verifier::external_body]
     pub fn alloc(
         level: PagingLevel,
         Tracked(model): Tracked<&mut AllocatorModel<PageTablePageMeta<C>>>,
@@ -118,15 +114,15 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.0.start_paddr() % page_size_spec::<C>(level) == 0,
             // old model does not change
             forall|pa: Paddr| #[trigger]
-                old(model).meta_map.contains_key(pa as int)
-                    ==> #[trigger] model.meta_map.contains_key(pa as int),
-            forall|p: Paddr| #[trigger]
-                old(model).meta_map.contains_key(p as int) ==> {
-                    &&& #[trigger] model.meta_map.contains_key(p as int)
-                    &&& (#[trigger] model.meta_map[p as int]).pptr() == (#[trigger] old(
-                        model,
-                    ).meta_map[p as int]).pptr()
-                    &&& model.meta_map[p as int].value() == old(model).meta_map[p as int].value()
+                old(model).meta_map.contains_key(pa as int) <==> {
+                    &&& #[trigger] model.meta_map.contains_key(pa as int)
+                    &&& res.0.start_paddr() != pa
+                },
+            forall|pa: Paddr| #[trigger]
+                model.meta_map.contains_key(pa as int) && old(model).meta_map.contains_key(
+                    pa as int,
+                ) ==> {
+                    &&& model.meta_map[pa as int] == old(model).meta_map[pa as int]
                 },
     {
         crate::exec::alloc_page_table(level, Tracked(model))
@@ -136,6 +132,31 @@ impl<C: PageTableConfig> PageTableNode<C> {
 pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMeta<C>>;
 
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
+    /// Borrows the PageTableNode at the physical address as a PageTableNodeRef.
+    /// This is a specialized version of FrameRef::borrow_paddr for page table nodes.
+    pub fn borrow_pt_paddr(
+        raw: Paddr,
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: Self)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(raw as int),
+            pa_is_valid_pt_address(raw as int),
+            level_is_in_range::<C>(alloc_model.meta_map[raw as int].value().level as int),
+        ensures
+            res.deref().start_paddr() == raw,
+            res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+            res.wf(alloc_model),
+            alloc_model.invariants(),
+    {
+        let res = FrameRef::borrow_paddr(raw, Tracked(alloc_model));
+        res
+    }
+
+    pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
+        self.deref().wf(alloc_model)
+    }
+
     // Actually should be checked after verification. Just can't be checked in pure Rust.
     pub fn make_guard_unchecked<'rcu>(
         self,
@@ -144,6 +165,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         ensures
             res.inner == self,
+            res.va == va,
     {
         PageTableGuard { inner: self, va: Ghost(va) }
     }
@@ -156,7 +178,7 @@ pub struct PageTableGuard<'a, C: PageTableConfig> {
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
-        &&& self.inner.wf(alloc_model)
+        self.inner.wf(alloc_model)
     }
 
     #[verifier::allow_in_spec]

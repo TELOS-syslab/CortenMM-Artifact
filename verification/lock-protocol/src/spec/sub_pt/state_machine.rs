@@ -3,9 +3,13 @@ use std::marker::PhantomData;
 use verus_state_machines_macros::*;
 use vstd::prelude::*;
 
-use crate::mm::allocator::pa_is_valid_kernel_address;
-use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
-use crate::mm::{page_size_spec, PageTableConfig, PagingLevel};
+use crate::mm::{
+    frame::allocator::pa_is_valid_kernel_address,
+    page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+    page_size_spec,
+    page_table::PageTableConfig,
+    PagingLevel,
+};
 
 verus! {
 
@@ -319,7 +323,20 @@ SubPageTableStateMachine<C: PageTableConfig> {
     }
 
     #[inductive(set_child)]
-    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView<C>) {}
+    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView<C>) {
+        assert(forall |i|
+            #[trigger] pre.frames.contains_key(i) ==>
+            (forall |l| #[trigger] pre.frames[i].ancestor_chain.dom().contains(l)
+            && !(#[trigger] pre.frames[i].ancestor_chain.index(l).entry_pa() == i_pte.entry_pa())) ==>
+               #[trigger] post.frames.contains_key(i)
+        );
+        // assert(forall |i|
+        //     #[trigger] post.frames.contains_key(i) ==>
+        //     (forall |l| #[trigger] post.frames[i].ancestor_chain.dom().contains(l)
+        //     && !(#[trigger] post.frames[i].ancestor_chain.index(l).entry_pa() == i_pte.entry_pa())) ==>
+        //        #[trigger] pre.frames.contains_key(i)
+        // );
+    }
 
     transition! {
         // remove a pte at a given address

@@ -4,17 +4,21 @@ use std::ops::Sub;
 
 use state_machine::{frames_valid, FrameView, SubPageTableStateMachine};
 
-use vstd::{prelude::*};
+use vstd::prelude::*;
 use vstd::simple_pptr::{PPtr, PointsTo};
 
-use crate::mm::allocator::{AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::{Paddr, PageTableConfig, PageTablePageMeta};
-use crate::mm::NR_ENTRIES;
-use crate::mm::page_table::cursor::MAX_NR_LEVELS;
-use crate::exec::SIZEOF_PAGETABLEENTRY;
-use crate::exec::SIZEOF_FRAME;
-use crate::spec::sub_pt::state_machine::ptes_frames_matches;
-use crate::mm::page_table::PagingConstsTrait;
+use crate::{
+    exec::{SIZEOF_FRAME, SIZEOF_PAGETABLEENTRY},
+    mm::{
+        frame::allocator::{pa_is_valid_kernel_address, AllocatorModel},
+        page_table::{
+            cursor::MAX_NR_LEVELS, node::PageTablePageMeta, PageTableConfig, PagingConstsTrait,
+        },
+        Paddr, NR_ENTRIES,
+    },
+    spec::sub_pt::state_machine::ptes_frames_matches,
+};
+
 verus! {
 
 pub open spec fn level_is_in_range<C: PageTableConfig>(level: int) -> bool {
@@ -47,11 +51,14 @@ pub tracked struct SubPageTable<C: PageTableConfig> {
     pub instance: SubPageTableStateMachine::Instance<C>,
     pub frames: SubPageTableStateMachine::frames<C>,
     pub i_ptes: SubPageTableStateMachine::i_ptes<C>,
-    pub ptes: SubPageTableStateMachine::ptes<C>,
+    pub ptes: SubPageTableStateMachine::ptes<
+        C,
+    >,
+    // pub forgot_guards: SubTreeForgotGuard<C: PageTableConfig>,
 }
 
 impl<C: PageTableConfig> SubPageTable<C> {
-    pub open spec fn wf(&self) -> bool {
+    pub open spec fn wf_inner(&self) -> bool {
         &&& self.alloc_model.invariants()
         // The instance matches the fields.
         &&& self.frames.instance_id() == self.instance.id()
@@ -75,6 +82,15 @@ impl<C: PageTableConfig> SubPageTable<C> {
         &&& self.root == self.instance.root()
         &&& frames_valid(self.root@, &self.frames.value(), &self.i_ptes.value())
         &&& ptes_frames_matches(&self.frames.value(), &self.i_ptes.value(), &self.ptes.value())
+    }
+
+    pub open spec fn wf_with_token(&self) -> bool {
+        true
+    }
+
+    pub open spec fn wf(&self) -> bool {
+        &&& self.wf_inner()
+        &&& self.wf_with_token()
     }
 }
 

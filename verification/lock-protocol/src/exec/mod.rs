@@ -1,7 +1,6 @@
 mod rcu;
-mod rw;
-mod test_map;
-
+// mod rw;
+// mod test_map;
 use vstd::{invariant, prelude::*};
 use core::num;
 use std::collections::HashMap;
@@ -10,22 +9,25 @@ use std::sync::{Mutex, OnceLock};
 
 use vstd::tokens::*;
 
-use crate::mm::allocator::{self, AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::cursor::spec_helpers;
-use crate::mm::entry::Entry;
-use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
-use crate::mm::page_table::PageTableNode;
-
-use crate::mm::{page_size_spec, pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
 use crate::{
     mm::{
-        cursor::{Cursor, CursorMut},
-        meta::{AnyFrameMeta, MetaSlot},
-        page_prop, Frame, PageTableEntryTrait, PageTablePageMeta, PagingConsts, PagingConstsTrait,
-        Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        frame::{
+            allocator::{self, pa_is_valid_kernel_address, AllocatorModel},
+            meta::{AnyFrameMeta, MetaSlot},
+            Frame,
+        },
+        page_prop::{self, PageFlags, PageProperty, PrivilegedPageFlags},
+        page_size_spec,
+        page_table::{
+            cursor::{spec_helpers, Cursor, CursorMut},
+            node::{entry::Entry, PageTableNode, PageTablePageMeta},
+            pte_index, PageTableConfig, PageTableEntryTrait, PagingConsts, PagingConstsTrait,
+        },
+        Paddr, PagingLevel, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
     },
     task::{disable_preempt, DisabledPreemptGuard},
 };
+
 use vstd::simple_pptr::*;
 
 use crate::exec;
@@ -131,118 +133,103 @@ pub fn alloc_page_table<C: PageTableConfig>(
     (frame, perm)
 }
 
-impl PageTableEntryTrait for MockPageTableEntry {
-    fn is_present(&self) -> bool {
-        self.frame_pa != 0
-    }
-
-    open spec fn is_present_spec(&self) -> bool {
-        self.frame_pa != 0
-    }
-
-    fn frame_paddr(&self) -> (res: usize) {
-        self.frame_pa as usize
-    }
-
-    open spec fn frame_paddr_spec(&self) -> Paddr {
-        self.frame_pa as Paddr
-    }
-
-    #[verifier::external_body]
-    fn is_last(&self, level: u8) -> bool {
-        level == 1
-    }
-
-    fn new_page(
-        paddr: crate::mm::Paddr,
-        level: crate::mm::PagingLevel,
-        prop: crate::mm::page_prop::PageProperty,
-    ) -> Self {
-        // NOTE: this function currently does not create a actual page table entry
-        MockPageTableEntry {
-            pte_addr: 0,
-            frame_pa: 0,
-            level: 0,  // let's use level 0 represent a page
-            prop,
-        }
-    }
-
-    #[verifier::external_body]
-    fn new_pt(paddr: crate::mm::Paddr) -> Self {
-        MockPageTableEntry {
-            pte_addr: 0,  // invalid
-            frame_pa: paddr as u64,
-            level: 0,  // invalid
-            prop: PageProperty {
-                has_map: true,
-                flags: PageFlags::R(),
-                cache: page_prop::CachePolicy::Uncacheable,
-                priv_flags: PrivilegedPageFlags::empty(),
-            },
-        }
-    }
-
-    #[verifier::external_body]
-    fn new_token(token: crate::mm::vm_space::Token) -> Self {
-        todo!()
-    }
-
-    #[verifier::external_body]
-    fn prop(&self) -> crate::mm::page_prop::PageProperty {
-        self.prop.clone()
-    }
-
-    open spec fn prop_spec(&self) -> PageProperty {
-        self.prop
-    }
-
-    #[verifier::external_body]
-    fn set_prop(&mut self, prop: crate::mm::page_prop::PageProperty) {
-        todo!()
-    }
-
-    #[verifier::external_body]
-    fn set_paddr(&mut self, paddr: crate::mm::Paddr) {
-        todo!()
-    }
-
-    #[verifier::external_body]
-    fn new_absent() -> Self {
-        // Self::default()
-        std::unimplemented!()
-    }
-
-    fn pte_paddr(&self) -> (res: Paddr) {
-        self.pte_addr as Paddr
-    }
-
-    open spec fn pte_paddr_spec(&self) -> Paddr {
-        self.pte_addr as Paddr
-    }
-
-    fn clone_pte(&self) -> (res: Self) {
-        MockPageTableEntry {
-            pte_addr: self.pte_addr,
-            frame_pa: self.frame_pa,
-            level: self.level,
-            prop: self.prop,
-        }
-    }
-}
-
-#[verifier::external_body]
-pub fn main_test() {
-    test_map::test(
-        0x123,
-        PageProperty {
-            has_map: true,
-            flags: PageFlags::R(),
-            cache: page_prop::CachePolicy::Uncacheable,
-            priv_flags: PrivilegedPageFlags::empty(),
-        },
-    )
-}
-
+// impl PageTableEntryTrait for MockPageTableEntry {
+//     fn is_present(&self) -> bool {
+//         self.frame_pa != 0
+//     }
+//     open spec fn is_present_spec(&self) -> bool {
+//         self.frame_pa != 0
+//     }
+//     fn frame_paddr(&self) -> (res: usize) {
+//         self.frame_pa as usize
+//     }
+//     open spec fn frame_paddr_spec(&self) -> Paddr {
+//         self.frame_pa as Paddr
+//     }
+// //     fn is_last(&self, level: u8) -> bool {
+//         level == 1
+//     }
+///    open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
+///        level == 1
+///    }
+//     fn new_page(
+//         paddr: crate::mm::Paddr,
+//         level: crate::mm::PagingLevel,
+//         prop: crate::mm::page_prop::PageProperty,
+//     ) -> Self {
+//         // NOTE: this function currently does not create a actual page table entry
+//         MockPageTableEntry {
+//             pte_addr: 0,
+//             frame_pa: 0,
+//             level: 0,  // let's use level 0 represent a page
+//             prop,
+//         }
+//     }
+//     #[verifier::external_body]
+//     fn new_pt(paddr: crate::mm::Paddr) -> Self {
+//         MockPageTableEntry {
+//             pte_addr: 0,  // invalid
+//             frame_pa: paddr as u64,
+//             level: 0,  // invalid
+//             prop: PageProperty {
+//                 has_map: true,
+//                 flags: PageFlags::R(),
+//                 cache: page_prop::CachePolicy::Uncacheable,
+//                 priv_flags: PrivilegedPageFlags::empty(),
+//             },
+//         }
+//     }
+//     #[verifier::external_body]
+//     fn new_token(token: crate::mm::vm_space::Token) -> Self {
+//         todo!()
+//     }
+//     #[verifier::external_body]
+//     fn prop(&self) -> crate::mm::page_prop::PageProperty {
+//         self.prop.clone()
+//     }
+//     open spec fn prop_spec(&self) -> PageProperty {
+//         self.prop
+//     }
+//     #[verifier::external_body]
+//     fn set_prop(&mut self, prop: crate::mm::page_prop::PageProperty) {
+//         todo!()
+//     }
+//     #[verifier::external_body]
+//     fn set_paddr(&mut self, paddr: crate::mm::Paddr) {
+//         todo!()
+//     }
+//     #[verifier::external_body]
+//     fn new_absent() -> Self {
+//         // Self::default()
+//         std::unimplemented!()
+//     }
+//     fn pte_paddr(&self) -> (res: Paddr) {
+//         self.pte_addr as Paddr
+//     }
+//     open spec fn pte_paddr_spec(&self) -> Paddr {
+//         self.pte_addr as Paddr
+//     }
+//     fn clone_pte(&self) -> (res: Self) {
+//         MockPageTableEntry {
+//             pte_addr: self.pte_addr,
+//             frame_pa: self.frame_pa,
+//             level: self.level,
+//             prop: self.prop,
+//         }
+//     }
+// }
+// #[verifier::external_body]
+// pub fn main_test() {
+//     test_map::test(
+//         0x123,
+//         PageProperty {
+//             has_map: true,
+//             flags: PageFlags::R(),
+//             cache: page_prop::CachePolicy::Uncacheable,
+//             priv_flags: PrivilegedPageFlags::empty(),
+//         },
+//     )
+// }
 pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsTrait>(
     va: usize,
     frame_va: usize,

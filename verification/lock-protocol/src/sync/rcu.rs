@@ -1,7 +1,12 @@
-use vstd::prelude::*;
-
 use core::ops::Deref;
 use core::mem::ManuallyDrop;
+
+use vstd::prelude::*;
+
+use crate::mm::{
+    page_table::{node_concurrent::PageTableNode, pte::Pte, PageTableConfig},
+    Vaddr,
+};
 
 verus! {
 
@@ -32,6 +37,20 @@ impl<T> Deref for RcuDrop<T> {
 
 pub open spec fn rcu_drop_deref<T>(x: &RcuDrop<T>) -> &T {
     &x.inner
+}
+
+#[verifier::external_body]
+pub fn rcu_load_pte<C: PageTableConfig>(
+    // ptr: *const Pte,
+    va: Vaddr,
+    idx: usize,
+    node: Ghost<PageTableNode<C>>,
+    offset: Ghost<nat>,
+) -> (res: Pte<C>)
+    ensures
+        res.wf_with_node(node@, offset@),
+{
+    unimplemented!()
 }
 
 } // verus!

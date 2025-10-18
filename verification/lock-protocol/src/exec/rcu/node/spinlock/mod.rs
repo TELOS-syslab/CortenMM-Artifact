@@ -1,3 +1,5 @@
+pub mod guard_forget;
+
 use core::marker::PhantomData;
 use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
@@ -8,10 +10,11 @@ use vstd::cell::CellId;
 use vstd_extra::array_ptr::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use super::super::{common::*, types::*, cpu::*};
+use super::super::{common::*, cpu::*};
 use super::super::pte::*;
 use super::PageTableGuard;
 use super::stray::*;
+use crate::mm::page_table::PageTableConfig;
 
 tokenized_state_machine! {
 
@@ -99,11 +102,11 @@ SpinLockToks<K, V, Pred: InvariantPredicate<K, V>> {
 
 verus! {
 
-pub tracked struct PageTableEntryPerms {
-    pub inner: PointsTo<Pte, PTE_NUM>,
+pub tracked struct PageTableEntryPerms<C: PageTableConfig> {
+    pub inner: PointsTo<Pte<C>, PTE_NUM>,
 }
 
-impl PageTableEntryPerms {
+impl<C: PageTableConfig> PageTableEntryPerms<C> {
     pub open spec fn wf(
         &self,
         paddr: Paddr,
@@ -119,6 +122,15 @@ impl PageTableEntryPerms {
             #![trigger self.inner.value()[i]]
             0 <= i < 512 ==> {
                 &&& self.inner.value()[i].wf_with_node_info(level, instance_id, nid, i as nat)
+            }
+    }
+
+    pub open spec fn relate_nid(&self, nid: NodeId) -> bool {
+        forall|i: int|
+            #![trigger self.inner.value()[i]]
+            0 <= i < 512 ==> {
+                self.inner.value()[i].nid@ is Some ==> self.inner.value()[i].nid@->Some_0
+                    == NodeHelper::get_child(nid, i as nat)
             }
     }
 
@@ -155,20 +167,20 @@ impl PageTableEntryPerms {
             }
     }
 
-    pub open spec fn relate_pte(&self, pte: Pte, idx: nat) -> bool {
+    pub open spec fn relate_pte(&self, pte: Pte<C>, idx: nat) -> bool {
         pte =~= self.inner.value()[idx as int]
     }
 }
 
 pub ghost struct SpinInternalPred;
 
-impl InvariantPredicate<
+impl<C: PageTableConfig> InvariantPredicate<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms<C>),
 > for SpinInternalPred {
     open spec fn inv(
         k: (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-        v: (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms),
+        v: (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms<C>),
     ) -> bool {
         &&& NodeHelper::valid_nid(k.1)
         &&& v.0 is Some <==> v.1 is Some
@@ -192,32 +204,32 @@ impl InvariantPredicate<
     }
 }
 
-type SpinInstance = SpinLockToks::Instance<
+type SpinInstance<C> = SpinLockToks::Instance<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms<C>),
     SpinInternalPred,
 >;
 
-type SpinFlagToken = SpinLockToks::flag<
+type SpinFlagToken<C> = SpinLockToks::flag<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms<C>),
     SpinInternalPred,
 >;
 
-type SpinGuardToken = SpinLockToks::guard<
+type SpinGuardToken<C> = SpinLockToks::guard<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, StrayPerm, PageTableEntryPerms<C>),
     SpinInternalPred,
 >;
 
 struct_with_invariants! {
-    pub struct PageTablePageSpinLock {
-        pub flag: AtomicBool<_, SpinFlagToken, _>,
+    pub struct PageTablePageSpinLock<C: PageTableConfig> {
+        pub flag: AtomicBool<_, SpinFlagToken<C>, _>,
 
         pub paddr: Ghost<Paddr>,
         pub level: Ghost<PagingLevel>,
 
-        pub inst: Tracked<SpinInstance>,
+        pub inst: Tracked<SpinInstance<C>>,
         pub pt_inst: Tracked<SpecInstance>,
         pub nid: Ghost<NodeId>,
         pub stray_cell_id: Ghost<CellId>,
@@ -238,190 +250,210 @@ struct_with_invariants! {
             &&& NodeHelper::valid_nid(self.nid@)
         }
 
-        invariant on flag with (inst) is (v: bool, g: SpinFlagToken) {
+        invariant on flag with (inst) is (v: bool, g: SpinFlagToken<C>) {
             &&& g.instance_id() == inst@.id()
             &&& g.value() == v
         }
     }
 }
 
-pub struct SpinGuard {
-    pub handle: Tracked<SpinGuardToken>,
-    pub node_token: Tracked<Option<NodeToken>>,
-    pub pte_token: Tracked<Option<PteArrayToken>>,
-    pub stray_perm: Tracked<StrayPerm>,
-    pub perms: Tracked<PageTableEntryPerms>,
-    pub in_protocol: Ghost<bool>,
+pub tracked struct SpinGuardGhostInner<C: PageTableConfig> {
+    pub handle: SpinGuardToken<C>,
+    pub node_token: Option<NodeToken>,
+    pub pte_token: Option<PteArrayToken>,
+    pub stray_perm: StrayPerm,
+    pub perms: PageTableEntryPerms<C>,
+    pub in_protocol: bool,
 }
 
-impl SpinGuard {
-    pub open spec fn wf(self, spinlock: &PageTablePageSpinLock) -> bool {
-        &&& self.handle@.instance_id() == spinlock.inst@.id()
-        &&& self.node_token@ is Some <==> self.pte_token@ is Some
-        &&& self.stray_perm@.perm.value() == false <==> self.node_token@ is Some
-        &&& self.node_token@ is Some ==> {
-            &&& self.node_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
-            &&& self.node_token@->Some_0.key() == spinlock.nid@
-            &&& !(self.node_token@->Some_0.value() is Free)
-            &&& self.in_protocol@ == true ==> self.node_token@->Some_0.value() is Locked
-            &&& self.in_protocol@ == false ==> self.node_token@->Some_0.value() is LockedOutside
+impl<C: PageTableConfig> SpinGuardGhostInner<C> {
+    pub open spec fn wf(self, spinlock: &PageTablePageSpinLock<C>) -> bool {
+        &&& self.handle.instance_id() == spinlock.inst@.id()
+        &&& self.node_token is Some <==> self.pte_token is Some
+        &&& self.stray_perm.perm.value() == false <==> self.node_token is Some
+        &&& self.node_token is Some ==> {
+            &&& self.node_token->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.node_token->Some_0.key() == spinlock.nid@
+            &&& !(self.node_token->Some_0.value() is Free)
+            &&& self.in_protocol == true ==> self.node_token->Some_0.value() is Locked
+            &&& self.in_protocol == false ==> self.node_token->Some_0.value() is LockedOutside
         }
-        &&& self.pte_token@ is Some ==> {
-            &&& self.pte_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
-            &&& self.pte_token@->Some_0.key() == spinlock.nid@
-            &&& self.pte_token@->Some_0.value().wf()
-            &&& self.perms@.relate_pte_state(spinlock.level@, self.pte_token@->Some_0.value())
+        &&& self.pte_token is Some ==> {
+            &&& self.pte_token->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.pte_token->Some_0.key() == spinlock.nid@
+            &&& self.pte_token->Some_0.value().wf()
+            &&& self.perms.relate_pte_state(spinlock.level@, self.pte_token->Some_0.value())
         }
-        &&& self.stray_perm@.wf_with_cell_id(spinlock.stray_cell_id@)
-        &&& self.stray_perm@.perm.is_init()
-        &&& self.stray_perm@.wf_with_node_info(
+        &&& self.stray_perm.wf_with_cell_id(spinlock.stray_cell_id@)
+        &&& self.stray_perm.perm.is_init()
+        &&& self.stray_perm.wf_with_node_info(
             spinlock.pt_inst@.id(),
             spinlock.nid@,
             spinlock.paddr@,
         )
-        &&& self.perms@.wf(spinlock.paddr@, spinlock.level@, spinlock.pt_inst@.id(), spinlock.nid@)
-        &&& self.perms@.addr() == paddr_to_vaddr(spinlock.paddr@)
+        &&& self.perms.wf(spinlock.paddr@, spinlock.level@, spinlock.pt_inst@.id(), spinlock.nid@)
+        &&& self.perms.addr() == paddr_to_vaddr(spinlock.paddr@)
     }
 
     /// Used in PageTableGuard::write_pte
-    pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock, idx: nat) -> bool {
-        &&& self.handle@.instance_id() == spinlock.inst@.id()
-        &&& self.node_token@ is Some <==> self.pte_token@ is Some
-        &&& self.stray_perm@.perm.value() == false <==> self.node_token@ is Some
-        &&& self.node_token@ is Some ==> {
-            &&& self.node_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
-            &&& self.node_token@->Some_0.key() == spinlock.nid@
-            &&& !(self.node_token@->Some_0.value() is Free)
-            &&& self.in_protocol@ == true ==> self.node_token@->Some_0.value() is Locked
-            &&& self.in_protocol@ == false ==> self.node_token@->Some_0.value() is LockedOutside
+    pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock<C>, idx: nat) -> bool {
+        &&& self.handle.instance_id() == spinlock.inst@.id()
+        &&& self.node_token is Some <==> self.pte_token is Some
+        &&& self.stray_perm.perm.value() == false <==> self.node_token is Some
+        &&& self.node_token is Some ==> {
+            &&& self.node_token->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.node_token->Some_0.key() == spinlock.nid@
+            &&& !(self.node_token->Some_0.value() is Free)
+            &&& self.in_protocol == true ==> self.node_token->Some_0.value() is Locked
+            &&& self.in_protocol == false ==> self.node_token->Some_0.value() is LockedOutside
         }
-        &&& self.pte_token@ is Some ==> {
-            &&& self.pte_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
-            &&& self.pte_token@->Some_0.key() == spinlock.nid@
-            &&& self.pte_token@->Some_0.value().wf()
-            &&& self.perms@.relate_pte_state_except(
+        &&& self.pte_token is Some ==> {
+            &&& self.pte_token->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.pte_token->Some_0.key() == spinlock.nid@
+            &&& self.pte_token->Some_0.value().wf()
+            &&& self.perms.relate_pte_state_except(
                 spinlock.level@,
-                self.pte_token@->Some_0.value(),
+                self.pte_token->Some_0.value(),
                 idx,
             )
         }
-        &&& self.stray_perm@.wf_with_cell_id(spinlock.stray_cell_id@)
-        &&& self.stray_perm@.perm.is_init()
-        &&& self.stray_perm@.wf_with_node_info(
+        &&& self.stray_perm.wf_with_cell_id(spinlock.stray_cell_id@)
+        &&& self.stray_perm.perm.is_init()
+        &&& self.stray_perm.wf_with_node_info(
             spinlock.pt_inst@.id(),
             spinlock.nid@,
             spinlock.paddr@,
         )
-        &&& self.perms@.wf(spinlock.paddr@, spinlock.level@, spinlock.pt_inst@.id(), spinlock.nid@)
-        &&& self.perms@.addr() == paddr_to_vaddr(spinlock.paddr@)
+        &&& self.perms.wf(spinlock.paddr@, spinlock.level@, spinlock.pt_inst@.id(), spinlock.nid@)
+        &&& self.perms.addr() == paddr_to_vaddr(spinlock.paddr@)
+    }
+
+    pub open spec fn relate_nid(self, nid: NodeId) -> bool {
+        &&& self.node_token is Some ==> self.node_token->Some_0.key() == nid
+        &&& self.pte_token is Some ==> self.pte_token->Some_0.key() == nid
+        &&& self.stray_perm.nid() == nid
+        &&& self.perms.relate_nid(nid)
+    }
+}
+
+pub struct SpinGuard<C: PageTableConfig> {
+    pub inner: Tracked<SpinGuardGhostInner<C>>,
+}
+
+impl<C: PageTableConfig> SpinGuard<C> {
+    pub open spec fn wf(self, spinlock: &PageTablePageSpinLock<C>) -> bool {
+        &&& self.inner@.wf(spinlock)
+    }
+
+    /// Used in PageTableGuard::write_pte
+    pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock<C>, idx: nat) -> bool {
+        &&& self.inner@.wf_except(spinlock, idx)
+    }
+
+    pub open spec fn handle(&self) -> SpinGuardToken<C> {
+        self.inner@.handle
+    }
+
+    pub open spec fn node_token(&self) -> Option<NodeToken> {
+        self.inner@.node_token
     }
 
     pub open spec fn view_node_token(&self) -> NodeToken
         recommends
-            self.node_token@ is Some,
+            self.inner@.node_token is Some,
     {
-        self.node_token@->Some_0
+        self.inner@.node_token->Some_0
+    }
+
+    pub open spec fn pte_token(&self) -> Option<PteArrayToken> {
+        self.inner@.pte_token
     }
 
     pub open spec fn view_pte_token(&self) -> PteArrayToken
         recommends
-            self.pte_token@ is Some,
+            self.inner@.pte_token is Some,
     {
-        self.pte_token@->Some_0
+        self.inner@.pte_token->Some_0
     }
 
-    pub open spec fn view_stary_perm(&self) -> StrayPerm {
-        self.stray_perm@
+    pub open spec fn stray_perm(&self) -> StrayPerm {
+        self.inner@.stray_perm
     }
 
-    pub open spec fn view_perms(&self) -> PageTableEntryPerms {
-        self.perms@
+    pub open spec fn perms(&self) -> PageTableEntryPerms<C> {
+        self.inner@.perms
     }
 
-    pub open spec fn wf_trans_lock_protocol(&self, old: &Self) -> bool {
-        &&& self.handle =~= old.handle
-        &&& self.pte_token =~= old.pte_token
-        &&& self.stray_perm =~= old.stray_perm
-        &&& self.perms =~= old.perms
+    pub open spec fn in_protocol(&self) -> bool {
+        self.inner@.in_protocol
     }
 
     pub proof fn tracked_borrow_node_token(tracked &self) -> (tracked res: &NodeToken)
         requires
-            self.node_token@ is Some,
+            self.node_token() is Some,
         ensures
-            *res =~= self.node_token@->Some_0,
+            *res =~= self.view_node_token(),
     {
-        self.node_token.borrow().tracked_borrow()
+        self.inner.borrow().node_token.tracked_borrow()
     }
 
     pub proof fn tracked_borrow_pte_token(tracked &self) -> (tracked res: &PteArrayToken)
         requires
-            self.pte_token@ is Some,
+            self.pte_token() is Some,
         ensures
-            *res =~= self.pte_token@->Some_0,
+            *res =~= self.view_pte_token(),
     {
-        self.pte_token.borrow().tracked_borrow()
+        self.inner.borrow().pte_token.tracked_borrow()
     }
 
-    pub fn trans_lock_protocol(
-        self,
-        spinlock: &PageTablePageSpinLock,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (Self, Tracked<LockProtocolModel>))
+    pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken>)
         requires
-            self.wf(spinlock),
-            self.stray_perm@.value() == false,
-            self.in_protocol@ == false,
-            spinlock.wf(),
-            m@.inv(),
-            m@.inst_id() == spinlock.pt_inst@.id(),
-            m@.state() is Locking,
-            m@.cur_node() == spinlock.nid@,
-            NodeHelper::in_subtree_range(m@.sub_tree_rt(), spinlock.nid@),
+            old(self).inner@.node_token is Some,
         ensures
-            res.0.wf(spinlock),
-            res.0.stray_perm@.value() == false,
-            res.0.in_protocol@ == true,
-            res.0.wf_trans_lock_protocol(&self),
-            res.1@.inv(),
-            res.1@.inst_id() == spinlock.pt_inst@.id(),
-            res.1@.state() is Locking,
-            res.1@.sub_tree_rt() == m@.sub_tree_rt(),
-            res.1@.cur_node() == spinlock.nid@ + 1,
+            res == old(self).view_node_token(),
+            self.node_token() == None::<NodeToken>,
+            self.pte_token() == old(self).pte_token(),
+            self.stray_perm() == old(self).stray_perm(),
+            self.perms() == old(self).perms(),
+            self.in_protocol() == old(self).in_protocol(),
+            self.handle() == old(self).handle(),
     {
-        let tracked m = m.get();
-        let tracked handle = self.handle.get();
-        let tracked mut node_token: Option<NodeToken> = self.node_token.get();
-        let tracked pte_token: Option<PteArrayToken> = self.pte_token.get();
-        let tracked stray_perm: StrayPerm = self.stray_perm.get();
-        let tracked perms: PageTableEntryPerms = self.perms.get();
+        let tracked res = self.inner.borrow_mut().node_token.tracked_take();
+        Tracked(res)
+    }
+
+    #[verifier::external_body]
+    pub fn put_node_token(&mut self, token: Tracked<NodeToken>)
+        requires
+            old(self).inner@.node_token is None,
+        ensures
+            self.node_token() == Option::Some(token@),
+            self.pte_token() == old(self).pte_token(),
+            self.stray_perm() == old(self).stray_perm(),
+            self.perms() == old(self).perms(),
+            self.in_protocol() == old(self).in_protocol(),
+            self.handle() == old(self).handle(),
+    {
+        unimplemented!()
+    }
+
+    //Although this function has mode exec, its operations are pure logical
+    pub fn update_in_protocol(&mut self, in_protocol: Tracked<bool>)
+        ensures
+            self.in_protocol() == in_protocol@,
+            self.node_token() == old(self).node_token(),
+            self.pte_token() == old(self).pte_token(),
+            self.stray_perm() == old(self).stray_perm(),
+            self.perms() == old(self).perms(),
+            self.handle() == old(self).handle(),
+    {
         proof {
-            let tracked mut node_token_inner = node_token.tracked_unwrap();
-            node_token_inner =
-            spinlock.pt_inst.borrow().normal_unlock(spinlock.nid(), node_token_inner);
-            let tracked res = spinlock.pt_inst.borrow().protocol_lock(
-                m.cpu,
-                spinlock.nid(),
-                node_token_inner,
-                m.token,
-            );
-            node_token_inner = res.0.get();
-            m.token = res.1.get();
-            node_token = Some(node_token_inner);
+            self.inner.borrow_mut().in_protocol = in_protocol.get();
         }
-        let guard = SpinGuard {
-            handle: Tracked(handle),
-            node_token: Tracked(node_token),
-            pte_token: Tracked(pte_token),
-            stray_perm: Tracked(stray_perm),
-            perms: Tracked(perms),
-            in_protocol: Ghost(true),
-        };
-        (guard, Tracked(m))
     }
 }
 
-impl PageTablePageSpinLock {
+impl<C: PageTableConfig> PageTablePageSpinLock<C> {
     pub open spec fn paddr_spec(&self) -> Paddr {
         self.paddr@
     }
@@ -447,14 +479,14 @@ impl PageTablePageSpinLock {
     }
 
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn normal_lock(&self) -> (res: SpinGuard)
+    pub fn normal_lock(&self) -> (res: SpinGuard<C>)
         requires
             self.wf(),
         ensures
             res.wf(self),
-            res.in_protocol@ == false,
+            res.in_protocol() == false,
     {
-        let mut guard_opt: Option<SpinGuard> = None;
+        let mut guard_opt: Option<SpinGuard<C>> = None;
         loop
             invariant_except_break
                 self.wf(),
@@ -462,13 +494,13 @@ impl PageTablePageSpinLock {
             ensures
                 guard_opt is Some,
                 guard_opt->Some_0.wf(self),
-                guard_opt->Some_0.in_protocol@ == false,
+                guard_opt->Some_0.in_protocol() == false,
         {
-            let tracked mut handle_opt: Option<SpinGuardToken> = None;
+            let tracked mut handle_opt: Option<SpinGuardToken<C>> = None;
             let tracked mut node_token_opt: Option<Option<NodeToken>> = None;
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
-            let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
+            let tracked mut perms_opt: Option<PageTableEntryPerms<C>> = None;
             let result =
                 atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
@@ -517,12 +549,16 @@ impl PageTablePageSpinLock {
                         }
                     }
                     let guard = SpinGuard {
-                        handle: Tracked(handle),
-                        node_token: Tracked(node_token),
-                        pte_token: Tracked(pte_token),
-                        stray_perm: Tracked(stray_perm),
-                        perms: Tracked(perms),
-                        in_protocol: Ghost(false),
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: node_token,
+                                pte_token: pte_token,
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: false,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
@@ -539,7 +575,7 @@ impl PageTablePageSpinLock {
     pub fn normal_lock_new_allocated_node(
         &self,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: SpinGuard)
+    ) -> (res: SpinGuard<C>)
         requires
             self.wf(),
             self.nid@ != NodeHelper::root_id(),
@@ -549,11 +585,11 @@ impl PageTablePageSpinLock {
             pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
         ensures
             res.wf(self),
-            res.stray_perm@.value() == false,
-            res.in_protocol@ == false,
+            res.stray_perm().value() == false,
+            res.in_protocol() == false,
     {
         let tracked pa_pte_array_token = pa_pte_array_token.get();
-        let mut guard_opt: Option<SpinGuard> = None;
+        let mut guard_opt: Option<SpinGuard<C>> = None;
         loop
             invariant_except_break
                 self.wf(),
@@ -567,14 +603,14 @@ impl PageTablePageSpinLock {
             ensures
                 guard_opt is Some,
                 guard_opt->Some_0.wf(self),
-                guard_opt->Some_0.stray_perm@.value() == false,
-                guard_opt->Some_0.in_protocol@ == false,
+                guard_opt->Some_0.stray_perm().value() == false,
+                guard_opt->Some_0.in_protocol() == false,
         {
-            let tracked mut handle_opt: Option<SpinGuardToken> = None;
+            let tracked mut handle_opt: Option<SpinGuardToken<C>> = None;
             let tracked mut node_token_opt: Option<Option<NodeToken>> = None;
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
-            let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
+            let tracked mut perms_opt: Option<PageTableEntryPerms<C>> = None;
             let result =
                 atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
@@ -629,12 +665,16 @@ impl PageTablePageSpinLock {
                         node_token = self.pt_inst.borrow().normal_lock(self.nid@, node_token);
                     }
                     let guard = SpinGuard {
-                        handle: Tracked(handle),
-                        node_token: Tracked(Some(node_token)),
-                        pte_token: Tracked(Some(pte_token)),
-                        stray_perm: Tracked(stray_perm),
-                        perms: Tracked(perms),
-                        in_protocol: Ghost(false),
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: Some(node_token),
+                                pte_token: Some(pte_token),
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: false,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
@@ -647,17 +687,18 @@ impl PageTablePageSpinLock {
         guard
     }
 
-    pub fn normal_unlock(&self, guard: SpinGuard)
+    pub fn normal_unlock(&self, guard: SpinGuard<C>)
         requires
             self.wf(),
             guard.wf(self),
-            guard.in_protocol@ == false,
+            guard.in_protocol() == false,
     {
-        let tracked handle = guard.handle.get();
-        let tracked mut node_token: Option<NodeToken> = guard.node_token.get();
-        let tracked pte_token: Option<PteArrayToken> = guard.pte_token.get();
-        let tracked stray_perm: StrayPerm = guard.stray_perm.get();
-        let tracked perms: PageTableEntryPerms = guard.perms.get();
+        let tracked inner = guard.inner.get();
+        let tracked handle = inner.handle;
+        let tracked mut node_token: Option<NodeToken> = inner.node_token;
+        let tracked pte_token: Option<PteArrayToken> = inner.pte_token;
+        let tracked stray_perm: StrayPerm = inner.stray_perm;
+        let tracked perms: PageTableEntryPerms<C> = inner.perms;
         atomic_with_ghost!(
             &self.flag => store(false);
             ghost g => {
@@ -683,7 +724,7 @@ impl PageTablePageSpinLock {
         &self,
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: (SpinGuard, Tracked<LockProtocolModel>))
+    ) -> (res: (SpinGuard<C>, Tracked<LockProtocolModel>))
         requires
             self.wf(),
             m@.inv(),
@@ -698,8 +739,8 @@ impl PageTablePageSpinLock {
             pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
         ensures
             res.0.wf(self),
-            res.0.stray_perm@.value() == false,
-            res.0.in_protocol@ == true,
+            res.0.stray_perm().value() == false,
+            res.0.in_protocol() == true,
             res.1@.inv(),
             res.1@.inst_id() == self.pt_inst_id(),
             res.1@.state() is Locking,
@@ -709,7 +750,7 @@ impl PageTablePageSpinLock {
         let tracked m = m.get();
         let ghost sub_tree_rt = m.sub_tree_rt();
         let tracked pa_pte_array_token = pa_pte_array_token.get();
-        let mut guard_opt: Option<SpinGuard> = None;
+        let mut guard_opt: Option<SpinGuard<C>> = None;
         loop
             invariant_except_break
                 self.wf(),
@@ -734,14 +775,14 @@ impl PageTablePageSpinLock {
                 m.cur_node() == self.nid() + 1,
                 guard_opt is Some,
                 guard_opt->Some_0.wf(self),
-                guard_opt->Some_0.stray_perm@.value() == false,
-                guard_opt->Some_0.in_protocol@ == true,
+                guard_opt->Some_0.stray_perm().value() == false,
+                guard_opt->Some_0.in_protocol() == true,
         {
-            let tracked mut handle_opt: Option<SpinGuardToken> = None;
+            let tracked mut handle_opt: Option<SpinGuardToken<C>> = None;
             let tracked mut node_token_opt: Option<Option<NodeToken>> = None;
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
-            let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
+            let tracked mut perms_opt: Option<PageTableEntryPerms<C>> = None;
             let result =
                 atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
@@ -804,12 +845,16 @@ impl PageTablePageSpinLock {
                         m.token = res.1.get();
                     }
                     let guard = SpinGuard {
-                        handle: Tracked(handle),
-                        node_token: Tracked(Some(node_token)),
-                        pte_token: Tracked(Some(pte_token)),
-                        stray_perm: Tracked(stray_perm),
-                        perms: Tracked(perms),
-                        in_protocol: Ghost(true),
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: Some(node_token),
+                                pte_token: Some(pte_token),
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: true,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
@@ -822,14 +867,14 @@ impl PageTablePageSpinLock {
         (guard, Tracked(m))
     }
 
-    pub fn unlock(&self, guard: SpinGuard, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+    pub fn unlock(&self, guard: SpinGuard<C>, m: Tracked<LockProtocolModel>) -> (res: Tracked<
         LockProtocolModel,
     >)
         requires
             self.wf(),
             guard.wf(self),
-            guard.stray_perm@.value() == false,
-            guard.in_protocol@ == true,
+            guard.stray_perm().value() == false,
+            guard.in_protocol() == true,
             m@.inv(),
             m@.inst_id() == self.pt_inst_id(),
             m@.state() is Locking,
@@ -843,11 +888,12 @@ impl PageTablePageSpinLock {
             res@.cur_node() == self.nid(),
     {
         let tracked m = m.get();
-        let tracked handle = guard.handle.get();
-        let tracked mut node_token: NodeToken = guard.node_token.get().tracked_unwrap();
-        let tracked pte_token: PteArrayToken = guard.pte_token.get().tracked_unwrap();
-        let tracked stray_perm: StrayPerm = guard.stray_perm.get();
-        let tracked perms: PageTableEntryPerms = guard.perms.get();
+        let tracked inner = guard.inner.get();
+        let tracked handle = inner.handle;
+        let tracked mut node_token: NodeToken = inner.node_token.tracked_unwrap();
+        let tracked pte_token: PteArrayToken = inner.pte_token.tracked_unwrap();
+        let tracked stray_perm: StrayPerm = inner.stray_perm;
+        let tracked perms: PageTableEntryPerms<C> = inner.perms;
         atomic_with_ghost!(
             &self.flag => store(false);
             ghost g => {

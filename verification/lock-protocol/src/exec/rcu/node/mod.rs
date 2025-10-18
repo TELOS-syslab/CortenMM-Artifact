@@ -6,6 +6,7 @@ pub mod stray;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::marker::PhantomData;
+use std::borrow::BorrowMut;
 
 use vstd::prelude::*;
 use vstd::raw_ptr::{PointsTo, ptr_ref};
@@ -14,40 +15,44 @@ use vstd::cell::{PCell, PointsTo as CellPointsTo};
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use super::{common::*, types::*, cpu::*, frame::meta::*};
-use super::pte::{Pte, page_table_entry_trait::*};
-use spinlock::{PageTablePageSpinLock, SpinGuard};
+use super::{common::*, cpu::*, frame::meta::*};
+use super::pte::Pte;
+use spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner};
 use child::Child;
 use entry::Entry;
 use stray::{StrayFlag, StrayPerm};
+use crate::mm::page_table::PageTableConfig;
+use crate::mm::page_table::PageTableEntryTrait;
+use crate::task::DisabledPreemptGuard;
 
 verus! {
 
-pub struct PageTableNode {
-    pub ptr: *const MetaSlot,
-    pub perm: Tracked<MetaSlotPerm>,
+pub struct PageTableNode<C: PageTableConfig> {
+    pub ptr: *const MetaSlot<C>,
+    pub perm: Tracked<MetaSlotPerm<C>>,
     pub nid: Ghost<NodeId>,
     pub inst: Tracked<SpecInstance>,
+    pub _phantom: PhantomData<C>,
 }
 
 // Functions defined in struct 'Frame'.
-impl PageTableNode {
-    pub open spec fn meta_spec(&self) -> PageTablePageMeta {
+impl<C: PageTableConfig> PageTableNode<C> {
+    pub open spec fn meta_spec(&self) -> PageTablePageMeta<C> {
         self.perm@.value().get_inner_pt_spec()
     }
 
-    pub fn meta(&self) -> (res: &PageTablePageMeta)
+    pub fn meta(&self) -> (res: &PageTablePageMeta<C>)
         requires
             self.wf(),
         ensures
             *res =~= self.meta_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(perm)));
+        let tracked perm: &PointsTo<MetaSlot<C>> = &self.perm.borrow().inner;
+        let meta_slot: &MetaSlot<C> = ptr_ref(self.ptr, (Tracked(perm)));
         &meta_slot.get_inner_pt()
     }
 
-    pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
+    pub uninterp spec fn from_raw_spec(paddr: Paddr) -> PageTableNode<C>;
 
     // Trusted
     #[verifier::external_body]
@@ -56,9 +61,9 @@ impl PageTableNode {
         nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
         level: Ghost<PagingLevel>,
-    ) -> (res: Self)
+    ) -> (res: PageTableNode<C>)
         ensures
-            res =~= Self::from_raw_spec(paddr),
+            res =~= PageTableNode::<C>::from_raw_spec(paddr),
             res.wf(),
             paddr == res.perm@.frame_paddr(),
             res.nid@ == nid@,
@@ -92,10 +97,19 @@ impl PageTableNode {
     {
         meta_to_frame(self.ptr.addr())
     }
+
+    #[verifier::external_body]
+    pub proof fn axiom_from_raw_sound(&self)
+        requires
+            self.wf(),
+        ensures
+            Self::from_raw_spec(self.start_paddr()) =~= *self,
+    {
+    }
 }
 
 // Functions defined in struct 'PageTableNode'.
-impl PageTableNode {
+impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.perm@.wf()
         &&& self.perm@.relate(self.ptr)
@@ -116,8 +130,8 @@ impl PageTableNode {
         ensures
             res == self.level_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
+        let tracked perm: &PointsTo<MetaSlot<C>> = &self.perm.borrow().inner;
+        let meta_slot: &MetaSlot<C> = ptr_ref(self.ptr, Tracked(perm));
         meta_slot.get_inner_pt().level
     }
 
@@ -140,7 +154,7 @@ impl PageTableNode {
         offset: Ghost<nat>,
         node_token: Tracked<&NodeToken>,
         pte_token: Tracked<PteArrayToken>,
-    ) -> (res: (Self, Tracked<PteArrayToken>))
+    ) -> (res: (PageTableNode<C>, Tracked<PteArrayToken>))
         requires
             level as nat == NodeHelper::nid_to_level(nid@),
             NodeHelper::valid_nid(nid@),
@@ -201,13 +215,13 @@ impl PageTableNode {
     }
 }
 
-pub struct PageTableNodeRef<'a> {
-    pub inner: ManuallyDrop<PageTableNode>,
+pub struct PageTableNodeRef<'a, C: PageTableConfig> {
+    pub inner: ManuallyDrop<PageTableNode<C>>,
     pub _marker: PhantomData<&'a ()>,
 }
 
 // Functions defined in struct 'FrameRef'.
-impl PageTableNodeRef<'_> {
+impl<C: PageTableConfig> PageTableNodeRef<'_, C> {
     pub open spec fn borrow_paddr_spec(raw: Paddr) -> Self {
         Self { inner: ManuallyDrop::new(PageTableNode::from_raw_spec(raw)), _marker: PhantomData }
     }
@@ -235,14 +249,14 @@ impl PageTableNodeRef<'_> {
     }
 }
 
-pub open spec fn pt_node_ref_deref_spec<'a>(
-    pt_node_ref: &'a PageTableNodeRef<'_>,
-) -> &'a PageTableNode {
+pub open spec fn pt_node_ref_deref_spec<'a, C: PageTableConfig>(
+    pt_node_ref: &'a PageTableNodeRef<'_, C>,
+) -> &'a PageTableNode<C> {
     &pt_node_ref.inner.deref()
 }
 
-impl Deref for PageTableNodeRef<'_> {
-    type Target = PageTableNode;
+impl<C: PageTableConfig> Deref for PageTableNodeRef<'_, C> {
+    type Target = PageTableNode<C>;
 
     #[verifier::when_used_as_spec(pt_node_ref_deref_spec)]
     fn deref(&self) -> (ret: &Self::Target)
@@ -254,31 +268,31 @@ impl Deref for PageTableNodeRef<'_> {
 }
 
 // Functions defined in struct 'PageTableNodeRef'.
-impl<'a> PageTableNodeRef<'a> {
+impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn wf(&self) -> bool {
         self.deref().wf()
     }
 
-    pub fn normal_lock<'rcu>(
-        self,
-        guard: &'rcu (),  // TODO
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+    pub fn normal_lock<'rcu>(self, guard: &'rcu DisabledPreemptGuard) -> (res: PageTableGuard<
+        'rcu,
+        C,
+    >) where 'a: 'rcu
         requires
             self.wf(),
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.in_protocol@ == false,
+            res.guard->Some_0.in_protocol() == false,
     {
-        let guard = self.meta().lock.normal_lock();
+        let guard = self.deref().meta().lock.normal_lock();
         PageTableGuard { inner: self, guard: Some(guard) }
     }
 
     pub fn normal_lock_new_allocated_node<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
             self.nid@ != NodeHelper::root_id(),
@@ -286,23 +300,23 @@ impl<'a> PageTableNodeRef<'a> {
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
             pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
             pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
-                == self.start_paddr(),
+                == self.deref().start_paddr(),
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.stray_perm@.value() == false,
-            res.guard->Some_0.in_protocol@ == false,
+            res.guard->Some_0.stray_perm().value() == false,
+            res.guard->Some_0.in_protocol() == false,
     {
-        let guard = self.meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
+        let guard = self.deref().meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
         PageTableGuard { inner: self, guard: Some(guard) }
     }
 
     pub fn lock<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: (PageTableGuard<'rcu>, Tracked<LockProtocolModel>)) where 'a: 'rcu
+    ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel>)) where 'a: 'rcu
         requires
             self.wf(),
             m@.inv(),
@@ -315,12 +329,12 @@ impl<'a> PageTableNodeRef<'a> {
             m@.node_is_locked(pa_pte_array_token@.key()),
             pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
             pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
-                == self.start_paddr(),
+                == self.deref().start_paddr(),
         ensures
             res.0.wf(),
             res.0.inner =~= self,
-            res.0.guard->Some_0.stray_perm@.value() == false,
-            res.0.guard->Some_0.in_protocol@ == true,
+            res.0.guard->Some_0.stray_perm().value() == false,
+            res.0.guard->Some_0.in_protocol() == true,
             res.1@.inv(),
             res.1@.inst_id() == res.0.inst_id(),
             res.1@.state() is Locking,
@@ -328,7 +342,7 @@ impl<'a> PageTableNodeRef<'a> {
             res.1@.cur_node() == self.nid@ + 1,
     {
         let tracked mut m = m.get();
-        let res = self.meta().lock.lock(Tracked(m), pa_pte_array_token);
+        let res = self.deref().meta().lock.lock(Tracked(m), pa_pte_array_token);
         proof {
             m = res.1.get();
         }
@@ -336,13 +350,14 @@ impl<'a> PageTableNodeRef<'a> {
         (guard, Tracked(m))
     }
 
-    #[verifier::external_body]
     pub fn make_guard_unchecked<'rcu>(
         self,
-        _guard: &'rcu (),
+        _guard: &'rcu DisabledPreemptGuard,
         m: Tracked<&LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+        forgot_guard: Tracked<SpinGuardGhostInner<C>>,
+        spin_lock: Ghost<PageTablePageSpinLock<C>>,
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
             m@.inv(),
@@ -356,23 +371,30 @@ impl<'a> PageTableNodeRef<'a> {
                 NodeHelper::get_offset(self.deref().nid@),
             ),
             m@.node_is_locked(pa_pte_array_token@.key()),
+            forgot_guard@.wf(&spin_lock@),
+            forgot_guard@.stray_perm.value() == false,
+            forgot_guard@.in_protocol@ == true,
+            self.deref().meta_spec().lock =~= spin_lock@,
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.stray_perm@.value() == false,
-            res.guard->Some_0.in_protocol@ == true,
+            res.guard->Some_0.stray_perm().value() == false,
+            res.guard->Some_0.in_protocol() == true,
+            res.guard->Some_0.inner@ =~= forgot_guard@,
+            res.deref().deref().meta_spec().lock =~= spin_lock@,
     {
-        // PageTableGuard { inner: self }
-        unimplemented!()
+        let spin_guard: SpinGuard<C> = SpinGuard { inner: forgot_guard };
+        let res = PageTableGuard { inner: self, guard: Some(spin_guard) };
+        res
     }
 }
 
-pub struct PageTableGuard<'rcu> {
-    pub inner: PageTableNodeRef<'rcu>,
-    pub guard: Option<SpinGuard>,
+pub struct PageTableGuard<'rcu, C: PageTableConfig> {
+    pub inner: PageTableNodeRef<'rcu, C>,
+    pub guard: Option<SpinGuard<C>>,
 }
 
-impl<'rcu> PageTableGuard<'rcu> {
+impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.inner.wf()
         &&& self.guard is Some
@@ -407,7 +429,7 @@ impl<'rcu> PageTableGuard<'rcu> {
         Tracked(tracked_inst.borrow().clone())
     }
 
-    pub fn entry(&self, idx: usize) -> (res: Entry)
+    pub fn entry(&self, idx: usize) -> (res: Entry<C>)
         requires
             self.wf(),
             0 <= idx < 512,
@@ -422,48 +444,48 @@ impl<'rcu> PageTableGuard<'rcu> {
         requires
             self.wf(),
         ensures
-            res == self.guard->Some_0.stray_perm@.value(),
+            res == self.guard->Some_0.stray_perm().value(),
     {
         let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
-        let guard: &SpinGuard = self.guard.as_ref().unwrap();
-        let tracked stray_perm = guard.stray_perm.borrow();
+        let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
+        let tracked stray_perm = &guard.inner.borrow().stray_perm;
         stray_cell.read(Tracked(stray_perm))
     }
 
-    pub fn read_pte(&self, idx: usize) -> (res: Pte)
+    pub fn read_pte(&self, idx: usize) -> (res: Pte<C>)
         requires
             self.wf(),
             0 <= idx < 512,
         ensures
             res.wf_with_node(*self.deref().deref(), idx as nat),
-            self.guard->Some_0.perms@.relate_pte(res, idx as nat),
+            self.guard->Some_0.perms().relate_pte(res, idx as nat),
     {
         let va = paddr_to_vaddr(self.deref().deref().start_paddr());
-        let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
-        let guard: &SpinGuard = self.guard.as_ref().unwrap();
-        let tracked perms = guard.perms.borrow();
+        let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
+        let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
+        let tracked perms = &guard.inner.borrow().perms;
         // assert(perms.inner.value()[idx as int].wf());
-        let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
-        assert(self.guard->Some_0.perms@.relate_pte(pte, idx as nat)) by {
-            assert(pte =~= guard.perms@.inner.opt_value()[idx as int]->Init_0);
+        let pte: Pte<C> = ptr.get(Tracked(&perms.inner), idx);
+        assert(self.guard->Some_0.perms().relate_pte(pte, idx as nat)) by {
+            assert(pte =~= guard.perms().inner.opt_value()[idx as int]->Init_0);
         };
         pte
     }
 
-    pub fn write_pte(&mut self, idx: usize, pte: Pte)
+    pub fn write_pte(&mut self, idx: usize, pte: Pte<C>)
         requires
             if pte.is_pt(old(self).inner.deref().level_spec()) {
                 // Called in Entry::alloc_if_none
                 &&& old(self).wf_except(idx as nat)
-                &&& old(self).guard->Some_0.pte_token@->Some_0.value().is_alive(idx as nat)
+                &&& old(self).guard->Some_0.pte_token()->Some_0.value().is_alive(idx as nat)
                 &&& pte.inner.paddr() == old(
                     self,
-                ).guard->Some_0.pte_token@->Some_0.value().get_paddr(idx as nat)
+                ).guard->Some_0.pte_token()->Some_0.value().get_paddr(idx as nat)
             } else {
                 // Called in Entry::replace
                 old(self).wf()
             },
-            old(self).guard->Some_0.stray_perm@.value() == false,
+            old(self).guard->Some_0.stray_perm().value() == false,
             0 <= idx < 512,
             pte.wf_with_node(*(old(self).inner.deref()), idx as nat),
         ensures
@@ -473,155 +495,180 @@ impl<'rcu> PageTableGuard<'rcu> {
                 self.wf_except(idx as nat)
             },
             self.inner =~= old(self).inner,
-            self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
-            self.guard->Some_0.pte_token =~= old(self).guard->Some_0.pte_token,
-            self.guard->Some_0.stray_perm@.value() == old(self).guard->Some_0.stray_perm@.value(),
-            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.guard->Some_0.perms().relate_pte(pte, idx as nat),
+            self.guard->Some_0.pte_token() =~= old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm().value() == old(self).guard->Some_0.stray_perm().value(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
-        let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
+        let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
         let mut guard = self.guard.take().unwrap();
         assert forall|i: int|
-            #![trigger guard.perms@.inner.opt_value()[i]]
+            #![trigger guard.perms().inner.opt_value()[i]]
             0 <= i < 512 && i != idx implies {
-            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node(
+            &&& guard.perms().inner.opt_value()[i]->Init_0.wf_with_node(
                 *self.inner.deref(),
                 i as nat,
             )
         } by {
-            assert(guard.perms@.inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
+            assert(guard.perms().inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
         };
-        ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
+        ptr.overwrite(Tracked(&mut guard.inner.borrow_mut().perms.inner), idx, pte);
         self.guard = Some(guard);
         proof {
             let ghost level = self.inner.deref().level_spec();
             if pte.is_pt(level) {
                 assert(self.wf()) by {
-                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert(self.guard->Some_0.pte_token() is Some);
                     assert forall|i: int| #![auto] 0 <= i < 512 implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
                     } by {
                         if i != idx as int {
                             assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                                 old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                old(self).guard->Some_0.pte_token()->Some_0.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                                 self,
-                            ).guard->Some_0.pte_token@->Some_0.value());
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            ).guard->Some_0.pte_token()->Some_0.value());
+                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                                 self,
-                            ).guard->Some_0.perms@.inner.value()[i]);
+                            ).guard->Some_0.perms().inner.value()[i]);
                         }
                     };
                     assert forall|i: int|
                         #![auto]
-                        0 <= i < 512 && self.guard->Some_0.perms@.inner.value()[i].is_pt(
+                        0 <= i < 512 && self.guard->Some_0.perms().inner.value()[i].is_pt(
                             level,
                         ) implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
                     } by {
                         if i != idx as int {
                             assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                                 old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                old(self).guard->Some_0.pte_token()->Some_0.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                                 self,
-                            ).guard->Some_0.pte_token@->Some_0.value());
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            ).guard->Some_0.pte_token()->Some_0.value());
+                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                                 self,
-                            ).guard->Some_0.perms@.inner.value()[i]);
+                            ).guard->Some_0.perms().inner.value()[i]);
                         }
                     };
                 };
             } else {
                 assert(self.wf_except(idx as nat)) by {
-                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert(self.guard->Some_0.pte_token() is Some);
                     assert forall|i: int| #![auto] 0 <= i < 512 && i != idx as int implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
                     } by {
                         assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                             old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            old(self).guard->Some_0.pte_token()->Some_0.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                             self,
-                        ).guard->Some_0.pte_token@->Some_0.value());
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                        ).guard->Some_0.pte_token()->Some_0.value());
+                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                             self,
-                        ).guard->Some_0.perms@.inner.value()[i]);
+                        ).guard->Some_0.perms().inner.value()[i]);
                     };
                     assert forall|i: int|
                         #![auto]
                         0 <= i < 512 && i != idx
-                            && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                            && self.guard->Some_0.perms().inner.value()[i].is_pt(level) implies {
+                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
                     } by {
                         assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                             old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            old(self).guard->Some_0.pte_token()->Some_0.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                             self,
-                        ).guard->Some_0.pte_token@->Some_0.value());
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                        ).guard->Some_0.pte_token()->Some_0.value());
+                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                             self,
-                        ).guard->Some_0.perms@.inner.value()[i]);
+                        ).guard->Some_0.perms().inner.value()[i]);
                     };
                 };
             }
         }
     }
 
-    pub fn trans_lock_protocol(&mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
-        LockProtocolModel,
-    >)
+    //Although this function has mode exec, its operations are pure logical
+    pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken>)
         requires
-            old(self).wf(),
-            old(self).guard->Some_0.stray_perm@.value() == false,
-            old(self).guard->Some_0.in_protocol@ == false,
-            m@.inv(),
-            m@.inst_id() == old(self).inst_id(),
-            m@.state() is Locking,
-            m@.cur_node() == old(self).nid(),
-            NodeHelper::in_subtree_range(m@.sub_tree_rt(), old(self).nid()),
+            old(self).guard is Some,
+            old(self).guard->Some_0.node_token() is Some,
         ensures
-            self.wf(),
-            self.guard->Some_0.stray_perm@.value() == false,
-            self.guard->Some_0.in_protocol@ == true,
-            self.inner =~= old(self).inner,
-            self.guard->Some_0.wf_trans_lock_protocol(&old(self).guard->Some_0),
-            res@.inv(),
-            res@.inst_id() == self.inst_id(),
-            res@.state() is Locking,
-            res@.sub_tree_rt() == m@.sub_tree_rt(),
-            res@.cur_node() == self.nid() + 1,
+            res@ == old(self).guard->Some_0.node_token()->Some_0,
+            self.guard->Some_0.node_token() == None::<NodeToken>,
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
+            self.inner == old(self).inner,
+            self.guard is Some,
     {
-        let tracked mut m = m.get();
-        let guard = self.guard.take().unwrap();
-        let res = guard.trans_lock_protocol(&self.inner.deref().meta().lock, Tracked(m));
-        let trans_guard = res.0;
-        proof {
-            m = res.1.get();
-        }
-        self.guard = Some(trans_guard);
-        Tracked(m)
+        let mut guard = self.guard.take().unwrap();
+        let res = guard.take_node_token();
+        self.guard = Some(guard);
+        res
     }
 
-    pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard)
+    //Although this function has mode exec, its operations are pure logical
+    pub fn put_node_token(&mut self, token: Tracked<NodeToken>)
+        requires
+            old(self).guard is Some,
+            old(self).guard->Some_0.node_token() is None,
+        ensures
+            self.guard->Some_0.node_token() == Some(token@),
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
+            self.inner == old(self).inner,
+            self.guard is Some,
+    {
+        let mut guard = self.guard.take().unwrap();
+        guard.put_node_token(token);
+        self.guard = Some(guard);
+    }
+
+    pub fn update_in_protocol(&mut self, in_protocol: Tracked<bool>)
+        requires
+            old(self).guard is Some,
+        ensures
+            self.guard->Some_0.in_protocol() == in_protocol@,
+            self.guard->Some_0.node_token() == old(self).guard->Some_0.node_token(),
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
+            self.inner == old(self).inner,
+            self.guard is Some,
+    {
+        let mut guard = self.guard.take().unwrap();
+        guard.update_in_protocol(in_protocol);
+        self.guard = Some(guard);
+    }
+
+    pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard<C>)
         requires
             self.guard is Some,
         ensures
@@ -631,14 +678,14 @@ impl<'rcu> PageTableGuard<'rcu> {
     }
 }
 
-pub open spec fn pt_guard_deref_spec<'a, 'rcu>(
-    guard: &'a PageTableGuard<'rcu>,
-) -> &'a PageTableNodeRef<'rcu> {
+pub open spec fn pt_guard_deref_spec<'a, 'rcu, C: PageTableConfig>(
+    guard: &'a PageTableGuard<'rcu, C>,
+) -> &'a PageTableNodeRef<'rcu, C> {
     &guard.inner
 }
 
-impl<'rcu> Deref for PageTableGuard<'rcu> {
-    type Target = PageTableNodeRef<'rcu>;
+impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
+    type Target = PageTableNodeRef<'rcu, C>;
 
     #[verifier::when_used_as_spec(pt_guard_deref_spec)]
     fn deref(&self) -> (ret: &Self::Target)
@@ -650,11 +697,11 @@ impl<'rcu> Deref for PageTableGuard<'rcu> {
 }
 
 // impl Drop for PageTableGuard<'_>
-impl PageTableGuard<'_> {
+impl<C: PageTableConfig> PageTableGuard<'_, C> {
     pub fn normal_drop<'a>(&'a mut self)
         requires
             old(self).wf(),
-            old(self).guard->Some_0.in_protocol@ == false,
+            old(self).guard->Some_0.in_protocol() == false,
         ensures
             self.guard is None,
     {
@@ -667,8 +714,8 @@ impl PageTableGuard<'_> {
     >)
         requires
             old(self).wf(),
-            old(self).guard->Some_0.stray_perm@.value() == false,
-            old(self).guard->Some_0.in_protocol@ == true,
+            old(self).guard->Some_0.stray_perm().value() == false,
+            old(self).guard->Some_0.in_protocol() == true,
             m@.inv(),
             m@.inst_id() == old(self).inst_id(),
             m@.state() is Locking,
@@ -692,32 +739,30 @@ impl PageTableGuard<'_> {
     }
 }
 
-struct_with_invariants! {
-    pub struct PageTablePageMeta {
-        pub lock: PageTablePageSpinLock,
-        // The stray flag indicates whether this frame is a page table node.
-        pub stray: StrayFlag,
-        pub level: PagingLevel,
-        pub frame_paddr: Paddr,
-        // pub frame_paddr: Ghost<Paddr>, // TODO
-        pub nid: Ghost<NodeId>,
-        pub inst: Tracked<SpecInstance>,
-    }
+pub struct PageTablePageMeta<C: PageTableConfig> {
+    pub lock: PageTablePageSpinLock<C>,
+    // The stray flag indicates whether this frame is a page table node.
+    pub stray: StrayFlag,
+    pub level: PagingLevel,
+    pub frame_paddr: Paddr,
+    // pub frame_paddr: Ghost<Paddr>, // TODO
+    pub nid: Ghost<NodeId>,
+    pub inst: Tracked<SpecInstance>,
+}
 
+impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub open spec fn wf(&self) -> bool {
-        predicate {
-            &&& self.lock.wf()
-            &&& self.frame_paddr == self.lock.paddr_spec()
-            &&& self.level == self.lock.level_spec()
-            &&& valid_paddr(self.frame_paddr)
-            &&& 1 <= self.level <= 4
-            &&& NodeHelper::valid_nid(self.nid@)
-            &&& self.nid@ == self.lock.nid@
-            &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-            &&& self.inst@.id() == self.lock.pt_inst_id()
-            &&& self.level as nat == NodeHelper::nid_to_level(self.nid@)
-            &&& self.stray.id() == self.lock.stray_cell_id@
-        }
+        &&& self.lock.wf()
+        &&& self.frame_paddr == self.lock.paddr_spec()
+        &&& self.level == self.lock.level_spec()
+        &&& valid_paddr(self.frame_paddr)
+        &&& 1 <= self.level <= 4
+        &&& NodeHelper::valid_nid(self.nid@)
+        &&& self.nid@ == self.lock.nid@
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+        &&& self.inst@.id() == self.lock.pt_inst_id()
+        &&& self.level as nat == NodeHelper::nid_to_level(self.nid@)
+        &&& self.stray.id() == self.lock.stray_cell_id@
     }
 }
 
