@@ -8,6 +8,7 @@ pushd ${REPO_DIR}/verification
 make clean
 cargo xtask bootstrap --restart
 make compile
-make lock-protocol
+make lock-protocol-rw
+make lock-protocol-rcu
 
 popd

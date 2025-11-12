@@ -1,7 +1,9 @@
 [workspace]
 members = [
     "vstd_extra",
-    "lock-protocol",
+    "common",
+    "lock-protocol-rw",
+    "lock-protocol-rcu", 
 ]
 exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
 resolver = "2"
